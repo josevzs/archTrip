@@ -1,0 +1,51 @@
+Licencia archTrip 1.0 — uso libre no comercial con atribución visible
+Copyright (c) 2026 José Vargas-Zúñiga Soldevila
+
+Se concede permiso, de forma gratuita, a cualquier persona que obtenga una copia de este
+software y de su documentación (el "Software") para usarlo, copiarlo, modificarlo y
+distribuirlo, con las condiciones siguientes:
+
+1. Uso no comercial. No se permite vender el Software, cobrar por su uso o por el acceso a
+   él, ni incorporarlo a productos o servicios comerciales, sin autorización escrita del
+   autor.
+
+2. Atribución visible. Toda copia, modificación o publicación del Software que se ponga a
+   disposición de terceros —incluidas las instalaciones accesibles por red y las copias HTML
+   autónomas que la herramienta genera— debe conservar la barra de créditos del autor tal
+   como la incluye la interfaz ("José Vargas-Zúñiga Soldevila, 2026", con su enlace de
+   patrocinio), visible, sin ocultarla ni alterarla.
+
+3. Modificaciones. Se permite modificar el Software. Quien lo modifique puede añadir su
+   coautoría y un enlace de patrocinio propio en la barra de créditos, siempre después de
+   los del autor original, y debe indicar que se trata de una versión modificada. Las
+   versiones modificadas se distribuyen bajo esta misma licencia.
+
+4. Servicios de terceros. El Software consulta servicios externos (OpenStreetMap y
+   Nominatim, OSRM, Wikidata, Wikimedia Commons, proveedores de mapas, ArchDaily,
+   Arquitectura Viva, entre otros) cuyos términos de uso son ajenos a esta licencia y
+   corresponde respetar a quien lo utilice.
+
+5. Sin garantía. EL SOFTWARE SE ENTREGA "TAL CUAL", SIN GARANTÍA DE NINGÚN TIPO, EXPRESA O
+   IMPLÍCITA, INCLUIDAS LAS DE COMERCIABILIDAD, IDONEIDAD PARA UN FIN CONCRETO Y NO
+   INFRACCIÓN. EN NINGÚN CASO EL AUTOR SERÁ RESPONSABLE DE RECLAMACIÓN, DAÑO U OTRA
+   RESPONSABILIDAD DERIVADA DEL SOFTWARE O DE SU USO.
+
+Este aviso de copyright y esta licencia deben incluirse en todas las copias o partes
+sustanciales del Software.
+
+---------------------------------------------------------------------------------------
+English summary (the Spanish text above is the binding one)
+
+archTrip License 1.0 — free non-commercial use with visible attribution.
+Copyright (c) 2026 José Vargas-Zúñiga Soldevila.
+
+You may use, copy, modify and distribute this software free of charge, provided that:
+(1) you do not sell it, charge for its use or access, or bundle it into commercial products
+or services without the author's written permission; (2) any copy, modification or
+publication made available to others — including network-accessible installs and the
+standalone HTML copies the tool produces — keeps the author's credit bar as shipped in the
+interface ("José Vargas-Zúñiga Soldevila, 2026", with the sponsorship link), visible and
+unaltered; (3) modified versions may add their own co-authorship and a sponsorship link
+after the original author's, must be marked as modified, and are distributed under this same
+license; (4) third-party services the software queries have their own terms, which are
+yours to respect. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.

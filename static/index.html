@@ -1,0 +1,1212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>archTrip</title>
+<style>
+  :root {
+    --ink: #111; --muted: #666; --line: #d8d8d8; --bg: #fff; --soft: #f4f4f4;
+    --ok: #2e7d4f; --maybe: #b8860b; --bad: #999; --warn: #b3261e;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body { font-family: "Courier New", Courier, monospace; font-size: 15px; line-height: 1.45;
+         padding: 20px 24px 60px; max-width: 1400px; margin: 0 auto; }
+  body.locked { overflow: hidden; }
+  a { color: var(--ink); }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: 1px; text-transform: uppercase; }
+  h2 { font-size: 15px; margin: 28px 0 8px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+
+  button, .btn, input, textarea {
+    font-family: inherit; font-size: 14px; color: var(--ink); background: var(--bg);
+  }
+  button, .btn {
+    border: 1px solid var(--ink); padding: 6px 12px; cursor: pointer; text-decoration: none;
+    display: inline-block; line-height: 1.2; background: var(--bg);
+  }
+  button:hover, .btn:hover { background: var(--soft); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.link { border: 0; padding: 0; text-decoration: underline; background: none; font-size: inherit; }
+  button.link:hover { background: none; color: var(--muted); }
+  button.quiet, .btn.quiet { border-color: var(--line); }
+  button.danger { border-color: var(--warn); color: var(--warn); }
+  button.on { color: var(--bg); }
+  button.on.curado { background: var(--ok); border-color: var(--ok); }
+  button.on.posible { background: var(--maybe); border-color: var(--maybe); }
+  button.on.descartado { background: var(--bad); border-color: var(--bad); }
+  input[type=text], input[type=number], textarea { border: 1px solid var(--line); padding: 6px 8px; width: 100%; }
+  input:focus, textarea:focus { outline: 2px solid var(--ink); outline-offset: -1px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .grow { flex: 1 1 200px; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin: 12px 0; }
+  .toolbar .group { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  .msg { border: 1px solid var(--line); padding: 10px 12px; margin: 12px 0; background: var(--soft); }
+  .msg.err { border-color: var(--warn); }
+  .msg ul { margin: 6px 0 0; padding-left: 20px; }
+  .progress { margin: 10px 0; }
+  .bar { height: 6px; background: var(--soft); border: 1px solid var(--line); margin-top: 4px; }
+  .bar i { display: block; height: 100%; background: var(--ink); }
+
+  .route { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; }
+  .route .stop { white-space: nowrap; }
+  .route .stop b { font-weight: normal; text-transform: uppercase; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 18px 0 10px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tabs button { border-color: var(--line); }
+  .tabs button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .views { display: flex; gap: 0; margin-left: auto; }
+  .views button { border-color: var(--line); }
+  .views button + button { border-left: 0; }
+  .views button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  #search { max-width: 320px; }
+
+  .group-head { margin: 26px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--ink);
+                text-transform: uppercase; letter-spacing: 1px; }
+  .group-head .muted { text-transform: none; letter-spacing: 0; }
+  .warn { color: var(--warn); }
+  .ok { color: var(--ok); }
+  .approx { cursor: help; border-bottom: 1px dotted var(--muted); }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+  /* ---- lista */
+  .lm { border: 1px solid var(--line); border-left: 6px solid var(--line); padding: 12px 14px;
+        margin: 0 0 10px; display: flex; gap: 14px; }
+  .lm.curado, .card.curado { border-left-color: var(--ok); }
+  .lm.posible, .card.posible { border-left-color: var(--maybe); }
+  .lm.descartado, .card.descartado { border-left-color: var(--bad); opacity: .6; }
+  .lm .body { flex: 1 1 auto; min-width: 0; }
+  .lm .arch, .card .arch, .dside .arch { font-size: 18px; font-weight: bold; text-transform: uppercase; letter-spacing: .5px; }
+  .lm .name, .card .name, .dside .name { font-size: 18px; }
+  .lm .meta, .card .meta { color: var(--muted); margin-top: 4px; }
+  .lm .links { margin-top: 6px; }
+  .links a, .links button { margin-right: 14px; }
+  .lm .actions { margin-top: 10px; }
+  .lm .thumb { flex: 0 0 140px; }
+  .lm .thumb img { width: 140px; height: 105px; object-fit: cover; border: 1px solid var(--line); display: block; cursor: zoom-in; }
+  .notes { margin-top: 6px; white-space: pre-wrap; }
+
+  /* ---- fotos */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; }
+  .card { border: 1px solid var(--line); border-left: 6px solid var(--line); background: var(--bg); display: flex; flex-direction: column; }
+  .card .pic { display: block; position: relative; aspect-ratio: 4 / 3; background: var(--soft); overflow: hidden; cursor: zoom-in; text-decoration: none; }
+  .card .pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card .nopic { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
+  .card .badge { position: absolute; right: 6px; bottom: 6px; background: rgba(255,255,255,.9); border: 1px solid var(--line); font-size: 12px; padding: 1px 6px; }
+  .card .cbody { padding: 8px 10px 10px; }
+  .card .arch { font-size: 14px; }
+  .card .name { font-size: 15px; line-height: 1.3; }
+  .card .meta { font-size: 12px; margin-top: 2px; }
+  .card .actions { margin-top: 8px; gap: 6px; }
+  .card .actions button { padding: 4px 8px; font-size: 12.5px; }
+
+  /* ---- mapa */
+  #map { height: 72vh; min-height: 420px; border: 1px solid var(--line); background: var(--soft); }
+  .stopicon { background: var(--ink); color: var(--bg); border-radius: 2px; font: bold 12px/20px "Courier New", monospace; text-align: center; width: 22px; height: 20px; }
+  .leaflet-popup-content { font-family: "Courier New", Courier, monospace; font-size: 13px; margin: 10px 12px; min-width: 200px; }
+  .leaflet-control-layers { font-family: "Courier New", Courier, monospace; font-size: 13px; border-radius: 0; }
+  .leaflet-control-layers-expanded { padding: 8px 12px 8px 8px; }
+  .leaflet-control-layers label { display: block; margin: 3px 0; }
+  .leaflet-popup-content .arch { font-weight: bold; text-transform: uppercase; }
+  .leaflet-popup-content img { width: 100%; height: 120px; object-fit: cover; margin: 6px 0; display: block; cursor: zoom-in; }
+  .leaflet-popup-content .actions { margin-top: 6px; gap: 5px; }
+  .leaflet-popup-content .actions button { padding: 3px 7px; font-size: 12px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 13px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+
+  /* ---- ficha (detalle) */
+  .detail { position: fixed; inset: 0; background: var(--bg); z-index: 1000; display: flex; flex-direction: column; padding: 14px 20px; overflow: auto; }
+  .dhead { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; border-bottom: 1px solid var(--ink); padding-bottom: 8px; }
+  .dmain { display: flex; gap: 20px; flex: 1 1 auto; min-height: 0; margin-top: 12px; }
+  .dviewer { flex: 1 1 60%; min-width: 0; display: flex; flex-direction: column; }
+  .dviewer .stage { flex: 1 1 auto; min-height: 320px; background: var(--soft); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .dviewer .stage img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+  .dviewer .caption { font-size: 12px; color: var(--muted); margin-top: 4px; min-height: 18px; }
+  .strip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
+  .strip .lab { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-right: 4px; width: 100%; }
+  .strip img { width: 84px; height: 63px; object-fit: cover; border: 2px solid transparent; cursor: pointer; display: block; }
+  .strip img.on { border-color: var(--ink); }
+  .strip img.dragging { opacity: .4; }
+  .strip img.over { outline: 2px dashed var(--ink); outline-offset: 1px; }
+  .bigbtns { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  .bigbtns .btn { font-size: 15px; padding: 9px 14px; }
+  .check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+  .check input { margin: 0; }
+  .trash { border: 0; background: none; padding: 2px 6px; font-size: 16px; line-height: 1; cursor: pointer; color: var(--warn); }
+  .trash:hover { background: var(--soft); }
+  .dside { flex: 0 0 360px; max-width: 40%; overflow: auto; }
+  .dside .actions { margin: 12px 0; }
+  .dside .actions button { font-size: 15px; padding: 8px 14px; }
+  .keys { color: var(--muted); font-size: 12px; margin-top: 14px; }
+  .keys kbd { border: 1px solid var(--line); padding: 0 4px; font-family: inherit; }
+  .dnav { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+
+  .edit { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
+  .edit .grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px 12px; }
+  .edit label { display: block; font-size: 12px; color: var(--muted); text-transform: uppercase; }
+  .edit .wide { grid-column: 1 / -1; }
+
+  .trips li { list-style: none; padding: 10px 0; border-bottom: 1px solid var(--line);
+              display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+  .trips ul { padding: 0; margin: 0; }
+  .trips .name { font-size: 17px; text-transform: uppercase; flex: 1 1 200px; }
+  .empty { padding: 30px 0; color: var(--muted); }
+  .choices { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+  .choice { flex: 1 1 280px; border: 1px solid var(--line); padding: 16px; cursor: pointer; background: var(--bg); text-align: left; }
+  .choice.on, .choice.on b { border-color: var(--ink); background: var(--soft); color: var(--ink); }
+  .choice b { display: block; font-size: 16px; margin-bottom: 4px; }
+  .steps { border: 1px solid var(--line); padding: 16px; margin-top: 12px; }
+  .steps h3 { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin: 18px 0 8px; color: var(--muted); }
+  .steps h3:first-child { margin-top: 0; }
+  .promptbox { border: 1px solid var(--line); background: var(--soft); padding: 14px 16px; margin-top: 10px;
+               white-space: pre-wrap; font-style: italic; font-size: 13px; line-height: 1.5; max-height: 60vh; overflow: auto; }
+  #credits { margin-top: 48px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted);
+             display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
+  #credits .brand { letter-spacing: 1px; text-transform: uppercase; }
+  #credits a { color: var(--muted); display: inline-flex; align-items: center; text-decoration: none; }
+  #credits a:hover { color: var(--ink); }
+  .banner { background: var(--soft); border: 1px dashed var(--line); padding: 8px 12px; margin-bottom: 12px; }
+  @media (max-width: 800px) {
+    body { padding: 14px 16px 50px; }
+    .lm { flex-direction: column-reverse; }
+    .lm .thumb { flex-basis: auto; }
+    .lm .thumb img { width: 100%; height: 160px; }
+    .dmain { flex-direction: column; }
+    .dside { flex-basis: auto; max-width: none; }
+    .dviewer .stage { min-height: 220px; max-height: 45vh; }
+    .views { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+<main id="app"></main>
+<footer id="credits">
+  <span class="brand">archTrip</span>
+  <span>José Vargas-Zúñiga Soldevila, 2026</span>
+  <a href="https://ko-fi.com/josevzs" target="_blank" rel="noopener" title="Invítame a un café (Ko-fi)" aria-label="Ko-fi"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 5h14a4 4 0 0 1 0 8h-1.1A6 6 0 0 1 10 18H8a6 6 0 0 1-6-6V6a1 1 0 0 1 1-1zm13 2v4h1a2 2 0 1 0 0-4h-1zM2 20h16v1.5H2z"/></svg></a>
+  <a href="https://github.com/josevzs/archTrip" target="_blank" rel="noopener" title="Código y licencia (GitHub)" aria-label="GitHub"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+</footer>
+<!--ARCHTRIP_DATA-->
+<script>
+(function () {
+  'use strict';
+
+  // ------------------------------------------------------------ setup
+  const STANDALONE = !!window.__ARCHTRIP__;
+  // Captured before anything renders so "Guardar copia" can re-emit this file
+  // with fresh data and no runtime DOM inside it.
+  const PRISTINE_HTML = STANDALONE ? '<!DOCTYPE html>\n' + document.documentElement.outerHTML : null;
+
+  const FILTERS = ['todos', 'pendiente', 'curado', 'posible', 'descartado'];
+  const FILTER_LABEL = { todos: 'Todos', pendiente: 'Pendientes', curado: 'Curados', posible: 'Posibles', descartado: 'Descartados' };
+  const VIEWS = { fotos: 'Fotos', arquitectos: 'Arquitectos', mapa: 'Mapa', lista: 'Lista' };
+  const COLORS = { pendiente: '#111', curado: '#2e7d4f', posible: '#b8860b', descartado: '#999' };
+  const LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+  const LEAFLET_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+  // Free tile providers that need no API key (CARTO now asks for one). Order = order in the selector.
+  const BASEMAPS = {
+    'Claro (Esri gris)': { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', native: 16, attribution: 'Tiles &copy; Esri' },
+    'OpenStreetMap': { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', native: 19, attribution: '&copy; OpenStreetMap' },
+    'Topográfico (Esri)': { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', native: 19, attribution: 'Tiles &copy; Esri' },
+    'National Geographic (Esri)': { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer/tile/{z}/{y}/{x}', native: 16, attribution: 'Tiles &copy; Esri, National Geographic' },
+    'Oscuro (Esri gris)': { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', native: 16, attribution: 'Tiles &copy; Esri' },
+    'Relieve (OpenTopoMap)': { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', native: 17, attribution: '&copy; OpenStreetMap, SRTM | &copy; OpenTopoMap (CC-BY-SA)' },
+    'Satélite (Esri)': { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', native: 19, attribution: 'Tiles &copy; Esri' },
+    'Calles (Esri)': { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', native: 19, attribution: 'Tiles &copy; Esri' },
+    'Humanitario (OSM)': { url: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', native: 19, attribution: '&copy; OpenStreetMap, HOT' },
+    'Japón — GSI estándar': { url: 'https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', native: 18, attribution: '&copy; 国土地理院 (GSI Japan)' },
+    'Japón — GSI pálido': { url: 'https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png', native: 18, attribution: '&copy; 国土地理院 (GSI Japan)' },
+    'Japón — GSI ortofoto': { url: 'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', native: 18, attribution: '&copy; 国土地理院 (GSI Japan)' },
+  };
+
+  const app = document.getElementById('app');
+  let savedView = 'fotos', savedHide = '1', savedSkip = '1';
+  try {
+    savedView = localStorage.getItem('archtrip:view') || 'fotos';
+    savedHide = localStorage.getItem('archtrip:hideRejected') || '1';
+    savedSkip = localStorage.getItem('archtrip:skipRejected') || '1';
+  } catch (e) { /* no storage */ }
+  const state = {
+    screen: 'trips', trips: [], trip: null, stops: [], landmarks: [], pending: null,
+    filter: 'todos', query: '', editing: null, msg: null, view: VIEWS[savedView] ? savedView : 'fotos',
+    newMode: null, promptText: null,
+    detail: null, detailImg: 0, addingImage: false,
+    hideRejected: savedHide === '1', skipRejected: savedSkip === '1',
+    enrich: { running: false, remaining: 0, error: null },
+  };
+  const mapState = { map: null, layer: null, fitted: false };
+
+  // ------------------------------------------------------------ helpers
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const attr = esc;
+  const q = (s) => encodeURIComponent(s);
+  // only ever link to http(s): a stray javascript: URL in an Excel cell must not become clickable
+  const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u.trim())) ? u.trim() : null;
+
+  function minutesText(m) {
+    m = Math.round(m);
+    if (m < 60) return m + ' min';
+    const h = Math.floor(m / 60), r = m % 60;
+    return h + ' h' + (r ? ' ' + r + ' min' : '');
+  }
+
+  function archdailyUrl(lm) {
+    return safeUrl(lm.url_archdaily) || 'https://www.archdaily.com/search/all?q=' + q(lm.architect + ' ' + lm.name);
+  }
+  function avUrl(lm) {
+    if (safeUrl(lm.url_av)) return safeUrl(lm.url_av);
+    // arquitecturaviva.com's search is JS-only; this reproduces the state its
+    // own code writes into the URL hash so the overlay opens with the query.
+    const text = lm.name + ' ' + lm.architect;
+    const token = text.replace(/[ '"]+/g, '');
+    return 'https://arquitecturaviva.com/?h=1#buscador_entidad=buscador&buscador_lang=es&buscador_pagina=1'
+      + '&buscador_orden=&buscador_filtros=' + q('obras,articulos')
+      + '&buscador_buscar=' + q(text) + '&elementos_buscados=' + q(token + '||' + text);
+  }
+  function imagesUrl(lm) {
+    return 'https://www.google.com/search?tbm=isch&q=' + q(lm.name + ' ' + lm.architect + ' ' + lm.city);
+  }
+  function googleUrl(lm) {
+    return 'https://www.google.com/search?q=' + q(lm.name + ' ' + lm.architect + ' ' + lm.city);
+  }
+  function mapsUrl(lm) {
+    return located(lm) ? 'https://www.google.com/maps/search/?api=1&query=' + lm.lat + ',' + lm.lon
+      : 'https://www.google.com/maps/search/?api=1&query=' + q(lm.name + ', ' + lm.city);
+  }
+  function directionsUrl(lm) {
+    const stop = state.stops.find((s) => s.id === lm.nearest_stop_id);
+    if (!stop || stop.lat == null || !located(lm)) return null;
+    return 'https://www.google.com/maps/dir/?api=1&origin=' + stop.lat + ',' + stop.lon + '&destination=' + lm.lat + ',' + lm.lon + '&travelmode=driving';
+  }
+
+  // Pictures of a landmark: the professor's own URLs first, then what the
+  // system fetched (Wikidata / Commons). Each: {kind, url, thumb, title, page_url, id?}
+  function pictures(lm) {
+    const out = [];
+    [lm.url_image1, lm.url_image2].forEach((u, i) => {
+      const s = safeUrl(u);
+      if (s) out.push({ kind: 'foto', url: s, thumb: s, title: 'Imagen ' + (i + 1) + ' (del Excel)', page_url: s, manual: true });
+    });
+    (lm.images || []).forEach((im) => out.push(im));
+    return out;
+  }
+  const photosOf = (lm) => pictures(lm).filter((p) => p.kind === 'foto');
+  const plansOf = (lm) => pictures(lm).filter((p) => p.kind === 'plano');
+  const mainPhoto = (lm) => photosOf(lm)[0] || null;
+  const located = (lm) => lm.lat != null && (lm.geocode_status === 'exacta' || lm.geocode_status === 'manual');
+
+  function download(filename, text, mime) {
+    const blob = new Blob([text], { type: mime || 'text/html;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  }
+
+  // ------------------------------------------------------------- stores
+  async function call(method, url, body, isForm) {
+    const opts = { method, headers: {} };
+    if (body !== undefined) {
+      if (isForm) opts.body = body;
+      else { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    }
+    const res = await fetch(url, opts);
+    if (res.status === 204) return null;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(data.error || ('Error ' + res.status));
+      err.details = data.errors;
+      throw err;
+    }
+    return data;
+  }
+
+  const api = {
+    listTrips: () => call('GET', '/api/trips'),
+    createTrip: (name) => call('POST', '/api/trips', { name }),
+    renameTrip: (id, name) => call('PATCH', '/api/trips/' + id, { name }),
+    deleteTrip: (id) => call('DELETE', '/api/trips/' + id),
+    getTrip: (id) => call('GET', '/api/trips/' + id),
+    upload: (kind, tripId, file) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      return call('POST', '/api/trips/' + tripId + '/' + (kind === 'route' ? 'route' : 'landmarks'), fd, true);
+    },
+    clearLandmarks: (tripId) => call('DELETE', '/api/trips/' + tripId + '/landmarks'),
+    patchLandmark: (id, fields) => call('PATCH', '/api/landmarks/' + id, fields),
+    deleteLandmark: (id) => call('DELETE', '/api/landmarks/' + id),
+    deleteImage: (id, imgId) => call('DELETE', '/api/landmarks/' + id + '/images/' + imgId),
+    addImage: (id, body) => call('POST', '/api/landmarks/' + id + '/images', body, body instanceof FormData),
+    orderImages: (id, ids) => call('PUT', '/api/landmarks/' + id + '/images/order', { ids }),
+    setImageKind: (id, imgId, kind) => call('PATCH', '/api/landmarks/' + id + '/images/' + imgId, { kind }),
+    refreshImages: (id) => call('POST', '/api/landmarks/' + id + '/images/refresh'),
+    enrichNext: (tripId) => call('POST', '/api/trips/' + tripId + '/enrich/next'),
+  };
+
+  // Standalone copy: data embedded in the file, edits overlaid from localStorage.
+  const local = (function () {
+    const data = window.__ARCHTRIP__ || {};
+    const key = 'archtrip:' + (data.trip && data.trip.id) + ':' + (data.exported_at || '');
+    let overlay = { landmarks: {}, deleted: [], removedImages: [], addedImages: {}, imageOrder: {}, imageKinds: {} };
+    try { overlay = Object.assign(overlay, JSON.parse(localStorage.getItem(key) || '{}')); } catch (e) { /* no storage */ }
+    function persist() { try { localStorage.setItem(key, JSON.stringify(overlay)); } catch (e) { /* ignore */ } }
+    function merged() {
+      return (data.landmarks || [])
+        .filter((lm) => overlay.deleted.indexOf(lm.id) < 0)
+        .map((lm) => {
+          let imgs = (overlay.addedImages[lm.id] || []).concat(lm.images || [])
+            .filter((im) => overlay.removedImages.indexOf(im.id) < 0)
+            .map((im) => overlay.imageKinds[im.id] ? Object.assign({}, im, { kind: overlay.imageKinds[im.id] }) : im);
+          const order = overlay.imageOrder[lm.id];
+          if (order) imgs.sort((a, b) => (order.indexOf(a.id) < 0 ? 1e9 : order.indexOf(a.id)) - (order.indexOf(b.id) < 0 ? 1e9 : order.indexOf(b.id)));
+          return Object.assign({}, lm, overlay.landmarks[lm.id] || {}, { images: imgs });
+        });
+    }
+    return {
+      getTrip: async () => ({ trip: data.trip, stops: data.stops || [], landmarks: merged(),
+                              pending: { total: 0, has_route: (data.stops || []).some((s) => s.lat != null) } }),
+      patchLandmark: async (id, fields) => {
+        const clean = {};
+        Object.keys(fields).forEach((k) => { if (k !== 'retry_geocode') clean[k] = fields[k]; });
+        overlay.landmarks[id] = Object.assign(overlay.landmarks[id] || {}, clean);
+        persist();
+        return merged().find((lm) => lm.id === id);
+      },
+      deleteLandmark: async (id) => { overlay.deleted.push(id); persist(); return null; },
+      deleteImage: async (id, imgId) => { overlay.removedImages.push(imgId); persist(); return merged().find((lm) => lm.id === id); },
+      addImage: async (id, body) => {
+        if (!safeUrl(body.url)) throw new Error('Pega una dirección que empiece por http:// o https://');
+        const im = { id: -Date.now(), landmark_id: id, kind: body.kind, url: body.url, thumb: body.url, title: body.url.split('/').pop(), page_url: body.url, source: 'manual', position: -1 };
+        (overlay.addedImages[id] = overlay.addedImages[id] || []).unshift(im);
+        persist();
+        return merged().find((lm) => lm.id === id);
+      },
+      enrichNext: async () => ({ done: true, remaining: 0, item: null }),
+      orderImages: async (id, ids) => { overlay.imageOrder[id] = ids; persist(); return merged().find((lm) => lm.id === id); },
+      setImageKind: async (id, imgId, kind) => { overlay.imageKinds[imgId] = kind; persist(); return merged().find((lm) => lm.id === id); },
+      buildCopy: () => {
+        const fresh = Object.assign({}, data, { landmarks: merged(), exported_at: new Date().toISOString().replace(/\.\d+Z$/, 'Z') });
+        const blob = JSON.stringify(fresh).replace(/</g, '\\u003c');
+        const re = /<script id="archtrip-data">[\s\S]*?<\/script>/;
+        if (!re.test(PRISTINE_HTML)) return null;
+        return PRISTINE_HTML.replace(re, () => '<script id="archtrip-data">window.__ARCHTRIP__ = ' + blob + ';<\/script>');
+      },
+      saveCopy: () => {
+        const html = local.buildCopy();
+        if (!html) { alert('No se ha podido generar la copia.'); return; }
+        const slug = (data.trip.name || 'viaje').normalize('NFKD').replace(/[̀-ͯ]/g, '')
+          .replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'viaje';
+        download('viaje-' + slug + '.html', html);
+      },
+    };
+  })();
+
+  const store = STANDALONE ? local : api;
+  if (STANDALONE) window.archtrip = { buildCopy: local.buildCopy };
+
+  // --------------------------------------------------------- rendering
+  function render() {
+    app.innerHTML = (state.screen === 'trips' ? tripsView() : state.screen === 'new' ? newTripView() : tripView()) + '<div id="overlay"></div>';
+    if (state.screen === 'trip') { renderList(); renderDetail(); }
+  }
+
+  function msgView() {
+    if (!state.msg) return '';
+    const m = state.msg;
+    return '<div class="msg ' + (m.type === 'err' ? 'err' : '') + '">' + esc(m.text)
+      + (m.list && m.list.length ? '<ul>' + m.list.map((l) => '<li>' + esc(l) + '</li>').join('') + '</ul>' : '')
+      + ' <button class="link" data-action="dismiss-msg">cerrar</button></div>';
+  }
+
+  function tripsView() {
+    return '<h1>archTrip</h1><div class="muted small">Planificación de viajes de arquitectura</div>'
+      + msgView()
+      + '<div style="margin:18px 0"><a class="btn" href="#/nuevo">＋ Nuevo viaje</a></div>'
+      + '<h2>Viajes</h2>'
+      + (state.trips.length ? '<div class="trips"><ul>' + state.trips.map((t) =>
+          '<li><span class="name"><a href="#/viaje/' + t.id + '">' + esc(t.name) + '</a></span>'
+          + '<span class="muted small">' + t.stop_count + ' paradas · ' + t.landmark_count + ' hitos · ' + t.curated_count + ' curados</span>'
+          + '<a class="btn quiet" href="#/viaje/' + t.id + '">Abrir</a>'
+          + '<button class="quiet" data-action="delete-trip" data-id="' + t.id + '">Borrar</button></li>'
+        ).join('') + '</ul></div>'
+        : '<div class="empty">Todavía no hay viajes. Crea el primero arriba.</div>');
+  }
+
+  function newTripView() {
+    const mode = state.newMode;
+    const nameForm = (label) => '<form class="row" data-form="create-trip" style="margin:12px 0"><input type="text" name="name" class="grow" placeholder="Nombre del viaje, p. ej. Portugal 2027" required>'
+      + '<button type="submit">' + label + '</button></form>';
+    let body = '';
+    if (mode === 'ia') {
+      body = '<div class="steps">'
+        + '<h3>1 · Descarga las dos plantillas</h3>'
+        + '<div class="row"><a class="btn" href="/api/templates/ruta.xlsx">⬇ Plantilla ruta</a><a class="btn" href="/api/templates/hitos.xlsx">⬇ Plantilla hitos</a></div>'
+        + '<h3>2 · Pídeselo a tu IA</h3>'
+        + '<p><b>Copia el texto de abajo y pégaselo a tu IA (ChatGPT, Claude, Gemini…) junto con LOS DOS archivos de plantilla. '
+        + 'Añade tu ruta aproximada y los días de viaje donde lo indica. Te devolverá las dos plantillas rellenas y precuradas.</b></p>'
+        + '<div class="row"><button data-action="copy-prompt">Copiar texto</button><a class="btn quiet" href="/api/templates/prompt.md?download=1">⬇ Descargar .md</a><span id="copy-note" class="muted small"></span></div>'
+        + '<div class="promptbox" id="promptbox">' + (state.promptText == null ? '<span class="muted">cargando…</span>' : esc(state.promptText)) + '</div>'
+        + '<h3>3 · Crea el viaje y sube los archivos</h3>'
+        + '<p class="small muted">Crea el viaje ahora o cuando tengas los archivos; en la pantalla del viaje están los botones "Subir ruta" y "Subir hitos".</p>'
+        + nameForm('Crear viaje')
+        + '</div>';
+    } else if (mode === 'manual') {
+      body = '<div class="steps"><p class="small muted">Se crea un viaje vacío. Desde su pantalla podrás descargar las plantillas, rellenarlas a mano y subirlas.</p>'
+        + nameForm('Crear viaje vacío') + '</div>';
+    }
+    return '<div class="row"><a href="#/" class="muted">← Viajes</a><h1 class="grow" style="margin:0">Nuevo viaje</h1></div>'
+      + msgView()
+      + '<div class="choices">'
+      + '<button class="choice ' + (mode === 'ia' ? 'on' : '') + '" data-action="new-mode" data-mode="ia"><b>Crear viaje asistido por IA</b><span class="small muted">Descargas las plantillas, se las das a tu IA con un encargo ya escrito y te devuelve la lista de hitos precurada.</span></button>'
+      + '<button class="choice ' + (mode === 'manual' ? 'on' : '') + '" data-action="new-mode" data-mode="manual"><b>Creación manual</b><span class="small muted">Viaje vacío: rellenas tú las plantillas y las subes cuando quieras.</span></button>'
+      + '</div>' + body;
+  }
+
+  function tripView() {
+    const t = state.trip;
+    const head = '<div class="row">'
+      + (STANDALONE ? '' : '<a href="#/" class="muted">← Viajes</a>')
+      + '<h1 class="grow" style="margin:0">' + esc(t.name) + '</h1>'
+      + (STANDALONE ? '' : '<button class="link small" data-action="rename-trip">renombrar</button>')
+      + '</div>';
+
+    let toolbar;
+    if (STANDALONE) {
+      toolbar = '<div class="banner small">Copia autónoma del viaje. Los cambios se guardan en este navegador; '
+        + 'usa <b>Guardar copia</b> para llevártelos a otro sitio o compartirlos.</div>'
+        + '<div class="toolbar"><div class="group"><button data-action="save-copy">Guardar copia</button></div></div>';
+    } else {
+      toolbar = '<div class="toolbar">'
+        + '<div class="group"><a class="btn quiet" href="/api/templates/ruta.xlsx">⬇ Plantilla ruta</a>'
+        + '<a class="btn quiet" href="/api/templates/hitos.xlsx">⬇ Plantilla hitos</a>'
+        + '<a class="btn quiet" href="/api/templates/prompt.md?download=1" title="Instrucciones para que una IA (ChatGPT, Claude, Gemini…) rellene las dos plantillas y las precure">⬇ Prompt para IA</a></div>'
+        + '<div class="group"><button data-action="pick-file" data-kind="route">⬆ Subir ruta</button>'
+        + '<button data-action="pick-file" data-kind="landmarks">⬆ Subir hitos</button>'
+        + '<input type="file" accept=".xlsx" data-upload="route" hidden><input type="file" accept=".xlsx" data-upload="landmarks" hidden></div>'
+        + '<div class="group"><a class="btn quiet" href="/api/trips/' + t.id + '/export/html" download>Exportar HTML</a>'
+        + '<a class="btn quiet" href="/api/trips/' + t.id + '/export/obsidian" download>Exportar Obsidian</a></div>'
+        + '</div>';
+    }
+
+    return head + toolbar + '<div id="msg">' + msgView() + '</div><div id="progress"></div>'
+      + '<h2>Ruta</h2><div id="route"></div>'
+      + '<h2>Hitos</h2>'
+      + '<div class="controls"><div id="tabs" class="tabs"></div>'
+      + '<input type="text" id="search" class="grow" placeholder="buscar edificio, arquitecto o ciudad" value="' + attr(state.query) + '">'
+      + '<div class="views" id="views"></div></div>'
+      + '<div id="list"></div>';
+  }
+
+  function routeView() {
+    if (!state.stops.length) {
+      return '<div class="muted">' + (STANDALONE ? 'Sin ruta.' : 'Sube la ruta (Excel) para calcular tiempos en coche desde cada parada.') + '</div>';
+    }
+    return '<div class="route">' + state.stops.map((s) => {
+      const glyph = s.geocode_status === 'ok' ? '<span class="ok">✓</span>'
+        : s.geocode_status === 'fallido' ? '<span class="warn" title="No se ha podido localizar">✗</span>' : '<span class="muted">⏳</span>';
+      return '<span class="stop">' + s.position + '. <b>' + esc(s.city) + '</b> ' + glyph + '</span>';
+    }).join('<span class="muted">→</span>') + '</div>';
+  }
+
+  function progressView() {
+    const e = state.enrich;
+    if (STANDALONE) return '';
+    if (e.error) {
+      return '<div class="msg err">' + esc(e.error) + ' Quedan ' + e.remaining + ' elementos por procesar. '
+        + '<button class="link" data-action="retry-enrich">Reintentar</button></div>';
+    }
+    if (e.running) {
+      const total = e.total || e.remaining || 1;
+      const pct = Math.max(2, Math.round(100 * (total - e.remaining) / total));
+      const c = state.pending || {};
+      const what = (c.stops || c.geocode || c.drive) ? 'Localizando en el mapa' : c.images ? 'Buscando fotos y planos' : 'Comprobando enlaces en ArchDaily y Arquitectura Viva';
+      return '<div class="progress">' + what + '… quedan ' + e.remaining
+        + '<div class="bar"><i style="width:' + pct + '%"></i></div></div>';
+    }
+    return '';
+  }
+
+  function counts() {
+    const c = { todos: state.landmarks.length, pendiente: 0, curado: 0, posible: 0, descartado: 0 };
+    state.landmarks.forEach((lm) => { c[lm.status] = (c[lm.status] || 0) + 1; });
+    return c;
+  }
+
+  function tabsView() {
+    const c = counts();
+    if (state.hideRejected) c.todos -= c.descartado;
+    return FILTERS.map((f) => '<button class="' + (state.filter === f ? 'on' : '') + '" data-action="filter" data-filter="' + f + '">'
+      + FILTER_LABEL[f] + ' ' + c[f] + '</button>').join('')
+      + '<label class="check" title="Los descartados solo se ven en su pestaña"><input type="checkbox" data-toggle="hideRejected" ' + (state.hideRejected ? 'checked' : '') + '> ocultar descartados</label>';
+  }
+
+  function viewsView() {
+    return Object.keys(VIEWS).map((v) => '<button class="' + (state.view === v ? 'on' : '') + '" data-action="view" data-view="' + v + '">' + VIEWS[v] + '</button>').join('');
+  }
+
+  function visibleLandmarks() {
+    const needle = state.query.trim().toLowerCase();
+    return state.landmarks.filter((lm) => (state.filter === 'todos' || lm.status === state.filter)
+      && !(state.hideRejected && state.filter !== 'descartado' && lm.status === 'descartado')
+      && (!needle || (lm.name + ' ' + lm.architect + ' ' + lm.city).toLowerCase().indexOf(needle) >= 0));
+  }
+
+  // Landmarks grouped by nearest route stop, ordered by drive time (vague ones last).
+  function groups(items) {
+    const map = new Map();
+    items.forEach((lm) => {
+      const key = lm.nearest_stop_position != null ? lm.nearest_stop_position : 9999;
+      if (!map.has(key)) map.set(key, { key, city: lm.nearest_stop_city, items: [] });
+      map.get(key).items.push(lm);
+    });
+    const vague = (x) => x.geocode_status === 'ciudad' ? 1 : 0;
+    return Array.from(map.values()).sort((a, b) => a.key - b.key).map((g) => {
+      g.items.sort((a, b) => vague(a) - vague(b) || (a.drive_minutes == null) - (b.drive_minutes == null)
+        || (a.drive_minutes || 0) - (b.drive_minutes || 0) || a.sort_order - b.sort_order || a.id - b.id);
+      return g;
+    });
+  }
+  function groupTitle(g) {
+    return g.key === 9999
+      ? (state.stops.length ? 'Sin localizar' : 'Todos los hitos')
+      : 'Desde ' + esc(g.city) + ' <span class="muted">(parada ' + g.key + ')</span>';
+  }
+  // The ordered list the ficha walks through with ← →
+  function orderedVisible() {
+    const items = state.view === 'arquitectos'
+      ? architectGroups(visibleLandmarks()).reduce((acc, g) => acc.concat(g.items), [])
+      : groups(visibleLandmarks()).reduce((acc, g) => acc.concat(g.items), []);
+    return state.skipRejected && state.filter !== 'descartado' ? items.filter((lm) => lm.status !== 'descartado') : items;
+  }
+  // Grouped by architect (studio), most works first, for the "Arquitectos" view.
+  function architectGroups(items) {
+    const map = new Map();
+    items.forEach((lm) => {
+      const key = lm.architect.trim().toLowerCase().replace(/\s+/g, ' ');
+      if (!map.has(key)) map.set(key, { key, name: lm.architect.trim(), items: [] });
+      map.get(key).items.push(lm);
+    });
+    return Array.from(map.values()).sort((a, b) => b.items.length - a.items.length || a.name.localeCompare(b.name))
+      .map((g) => { g.items.sort((a, b) => (a.nearest_stop_position || 9999) - (b.nearest_stop_position || 9999) || (a.year || '').localeCompare(b.year || '')); return g; });
+  }
+
+  function driveText(lm) {
+    if (lm.drive_minutes != null && lm.nearest_stop_city) {
+      if (lm.geocode_status === 'ciudad') {
+        // only the city centre was found: the time is city-to-city, not to the building
+        const hint = '<span class="warn" title="No se ha encontrado el edificio en el mapa; usa editar para poner dirección o coordenadas">sin localizar con precisión</span>';
+        if (lm.drive_minutes < 2) return hint + ' <span class="muted">· está en ' + esc(lm.city) + '</span>';
+        return hint + ' · ⏱ <span class="approx" title="Tiempo hasta el centro de ' + attr(lm.city) + ', no hasta el edificio">≈</span> '
+          + minutesText(lm.drive_minutes) + ' en coche desde ' + esc(lm.nearest_stop_city) + ' hasta ' + esc(lm.city);
+      }
+      const approx = lm.drive_source === 'estimado';
+      const why = 'Estimación por distancia en línea recta (sin conexión con el servicio de rutas)';
+      return '⏱ ' + (approx ? '<span class="approx" title="' + attr(why) + '">≈</span> ' : '')
+        + minutesText(lm.drive_minutes) + ' en coche desde ' + esc(lm.nearest_stop_city)
+        + (lm.drive_km != null ? ' (' + Math.round(lm.drive_km) + ' km)' : '');
+    }
+    if (lm.geocode_status === 'fallido') return '<span class="warn">⚠ no se ha podido localizar</span> <span class="small">— usa <i>editar</i> para poner dirección o coordenadas</span>';
+    if (lm.lat == null) return STANDALONE ? '' : '<span class="muted">⏳ localizando…</span>';
+    if (!state.stops.length) return '<span class="muted">sin ruta para calcular el tiempo</span>';
+    return STANDALONE ? '' : '<span class="muted">⏳ calculando tiempo…</span>';
+  }
+
+  function statusButtons(lm, extra) {
+    const btn = (s, label) => '<button class="' + (lm.status === s ? 'on ' + s : 'quiet') + '" data-action="set-status" data-id="' + lm.id + '" data-status="' + s + '">' + label + '</button>';
+    return btn('curado', '✓ Curar') + btn('posible', '? Posible') + btn('descartado', '✗ Descartar') + (extra || '');
+  }
+
+  function linksView(lm) {
+    // ArchDaily / AV: a direct link when one is known; the site search only while the
+    // lookup is still pending; nothing once the lookup found no page.
+    const checked = lm.links_status === 'ok';
+    const ad = safeUrl(lm.url_archdaily) ? '<a href="' + attr(lm.url_archdaily) + '" target="_blank" rel="noopener">ArchDaily</a>'
+      : (checked ? '' : '<a href="' + attr(archdailyUrl(lm)) + '" target="_blank" rel="noopener" class="muted">buscar en ArchDaily</a>');
+    const av = safeUrl(lm.url_av) ? '<a href="' + attr(lm.url_av) + '" target="_blank" rel="noopener">Arquitectura Viva</a>'
+      : (checked ? '' : '<a href="' + attr(avUrl(lm)) + '" target="_blank" rel="noopener" class="muted">buscar en Arquitectura Viva</a>');
+    const dir = directionsUrl(lm);
+    return ad + av
+      + (safeUrl(lm.wikipedia_url) ? '<a href="' + attr(lm.wikipedia_url) + '" target="_blank" rel="noopener">Wikipedia</a>' : '')
+      + '<a href="' + attr(mapsUrl(lm)) + '" target="_blank" rel="noopener">Google Maps</a>'
+      + (dir ? '<a href="' + attr(dir) + '" target="_blank" rel="noopener" title="Ruta en coche desde la parada">cómo llegar</a>' : '');
+  }
+
+  function picCount(lm) {
+    const p = photosOf(lm).length, d = plansOf(lm).length;
+    if (!p && !d) return '';
+    return (p ? p + (p === 1 ? ' foto' : ' fotos') : '') + (p && d ? ' · ' : '') + (d ? d + (d === 1 ? ' plano' : ' planos') : '');
+  }
+
+  // ---- lista
+  function landmarkView(lm) {
+    const meta = [esc(lm.city), lm.year ? esc(lm.year) : null, driveText(lm)].filter(Boolean).join(' · ');
+    const main = mainPhoto(lm);
+    const thumb = main ? '<a class="thumb" href="#" data-action="open" data-id="' + lm.id + '">'
+      + '<img src="' + attr(main.thumb) + '" alt="" loading="lazy" onerror="this.parentNode.style.display=\'none\'"></a>' : '';
+    const pc = picCount(lm);
+    return '<div class="lm ' + lm.status + '" id="lm-' + lm.id + '"><div class="body">'
+      + '<div class="arch">' + esc(lm.architect) + '</div><div class="name">' + esc(lm.name) + '</div>'
+      + '<div class="meta">' + meta + '</div>'
+      + '<div class="links small">' + linksView(lm)
+      + '<button class="link" data-action="open" data-id="' + lm.id + '">' + (pc ? 'ficha (' + pc + ')' : 'ficha') + '</button>'
+      + '<button class="link" data-action="edit" data-id="' + lm.id + '">editar</button></div>'
+      + (lm.notes ? '<div class="notes small">' + esc(lm.notes) + '</div>' : '')
+      + '<div class="actions">' + statusButtons(lm, '<button class="link danger" data-action="delete-landmark" data-id="' + lm.id + '" title="Quitar el hito del viaje definitivamente">eliminar del todo</button>') + '</div>'
+      + (state.editing === lm.id ? editView(lm) : '')
+      + '</div>' + thumb + '</div>';
+  }
+
+  function editView(lm) {
+    const f = (name, label, value, wide) => '<div class="' + (wide ? 'wide' : '') + '"><label>' + label + '</label>'
+      + '<input type="text" name="' + name + '" value="' + attr(value == null ? '' : value) + '"></div>';
+    return '<form class="edit" data-form="edit" data-id="' + lm.id + '"><div class="grid2">'
+      + f('name', 'Edificio', lm.name) + f('architect', 'Arquitecto', lm.architect) + f('city', 'Ciudad', lm.city)
+      + f('address', 'Dirección', lm.address) + f('year', 'Año', lm.year)
+      + f('lat', 'Latitud', lm.lat) + f('lon', 'Longitud', lm.lon)
+      + f('url_archdaily', 'URL ArchDaily', lm.url_archdaily, true) + f('url_av', 'URL Arquitectura Viva', lm.url_av, true)
+      + f('url_image1', 'URL imagen 1', lm.url_image1, true) + f('url_image2', 'URL imagen 2', lm.url_image2, true)
+      + '<div class="wide"><label>Notas</label><textarea name="notes" rows="3">' + esc(lm.notes) + '</textarea></div>'
+      + '</div><div class="row" style="margin-top:10px"><button type="submit">Guardar</button>'
+      + '<button type="button" class="quiet" data-action="cancel-edit">Cancelar</button>'
+      + (STANDALONE ? '' : '<button type="button" class="quiet" data-action="retry-geocode" data-id="' + lm.id + '" title="Borra las coordenadas y vuelve a buscarlas con la dirección y ciudad actuales">Volver a localizar</button>')
+      + (STANDALONE ? '' : '<button type="button" class="quiet" data-action="refresh-images" data-id="' + lm.id + '" title="Descarta las fotos encontradas y vuelve a buscarlas">Buscar fotos otra vez</button>')
+      + '<span class="grow"></span><button type="button" class="danger" data-action="delete-landmark" data-id="' + lm.id + '">Borrar hito</button>'
+      + '</div>' + (STANDALONE ? '' : '<div class="muted small" style="margin-top:6px">Si cambias latitud/longitud se recalcula el tiempo en coche.</div>') + '</form>';
+  }
+
+  // ---- fotos
+  function cardView(lm) {
+    const main = mainPhoto(lm);
+    const pic = main ? '<img src="' + attr(main.thumb) + '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.parentNode.insertAdjacentHTML(\'beforeend\',\'<div class=nopic>imagen no disponible</div>\')">'
+      : '<div class="nopic">' + (lm.images_status === 'pendiente' && !STANDALONE ? '⏳ buscando fotos…' : 'sin foto') + '</div>';
+    const pc = picCount(lm);
+    return '<div class="card ' + lm.status + '" id="card-' + lm.id + '">'
+      + '<a class="pic" href="#" data-action="open" data-id="' + lm.id + '">' + pic + (pc ? '<span class="badge">' + pc + '</span>' : '') + '</a>'
+      + '<div class="cbody"><div class="arch">' + esc(lm.architect) + '</div><div class="name">' + esc(lm.name) + '</div>'
+      + '<div class="meta">' + [esc(lm.city), driveText(lm)].filter(Boolean).join(' · ') + '</div>'
+      + '<div class="actions">' + statusButtons(lm, trashButton(lm)) + '</div></div></div>';
+  }
+  function trashButton(lm) {
+    return lm.status === 'descartado'
+      ? '<button class="trash" data-action="delete-landmark" data-id="' + lm.id + '" title="Eliminar del viaje definitivamente">🗑</button>' : '';
+  }
+
+  function emptyView(items) {
+    if (!state.landmarks.length) {
+      return '<div class="empty">' + (STANDALONE ? 'Este viaje no tiene hitos.' : 'Descarga la plantilla de hitos, rellénala y súbela aquí.') + '</div>';
+    }
+    if (!items.length) return '<div class="empty">Nada que mostrar con este filtro.</div>';
+    return null;
+  }
+
+  function listView() {
+    const items = visibleLandmarks();
+    const empty = emptyView(items);
+    if (empty) return empty;
+    if (state.view === 'fotos') {
+      return groups(items).map((g) => '<div class="group-head">' + groupTitle(g) + ' <span class="muted">· ' + g.items.length + '</span></div>'
+        + '<div class="grid">' + g.items.map(cardView).join('') + '</div>').join('');
+    }
+    if (state.view === 'arquitectos') {
+      return architectGroups(items).map((g) => '<div class="group-head">' + esc(g.name) + ' <span class="muted">· ' + g.items.length + '</span></div>'
+        + '<div class="grid">' + g.items.map(cardView).join('') + '</div>').join('');
+    }
+    return groups(items).map((g) => '<div class="group-head">' + groupTitle(g) + ' <span class="muted">· ' + g.items.length + '</span></div>'
+      + g.items.map(landmarkView).join('')).join('');
+  }
+
+  // ---- mapa (Leaflet, loaded on first use)
+  let leafletPromise = null;
+  function loadLeaflet() {
+    if (window.L) return Promise.resolve(window.L);
+    if (leafletPromise) return leafletPromise;
+    leafletPromise = new Promise((resolve, reject) => {
+      const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = LEAFLET_CSS; document.head.appendChild(css);
+      const js = document.createElement('script'); js.src = LEAFLET_JS;
+      js.onload = () => resolve(window.L); js.onerror = () => { leafletPromise = null; reject(new Error('No se ha podido cargar el mapa (¿sin conexión?)')); };
+      document.head.appendChild(js);
+    });
+    return leafletPromise;
+  }
+
+  function popupView(lm) {
+    const main = mainPhoto(lm);
+    return '<div class="arch">' + esc(lm.architect) + '</div><div>' + esc(lm.name) + '</div>'
+      + (main ? '<img src="' + attr(main.thumb) + '" alt="" data-action="open" data-id="' + lm.id + '">' : '')
+      + '<div class="muted">' + driveText(lm) + '</div>'
+      + '<div class="actions">' + statusButtons(lm, '<button class="link" data-action="open" data-id="' + lm.id + '">ficha</button>' + trashButton(lm)) + '</div>';
+  }
+
+  function renderMap() {
+    const el = document.getElementById('list');
+    if (!el) return;
+    if (!document.getElementById('map')) {
+      el.innerHTML = '<div id="map"></div><div class="legend" id="map-note"></div>';
+      mapState.map = null; mapState.fitted = false;
+    }
+    loadLeaflet().then((L) => {
+      if (!document.getElementById('map') || state.view !== 'mapa') return;
+      if (!mapState.map) {
+        mapState.map = L.map('map', { zoomSnap: 0.5 });
+        let chosen = Object.keys(BASEMAPS)[0];
+        try { chosen = localStorage.getItem('archtrip:basemap') || chosen; } catch (e) { /* no storage */ }
+        if (!BASEMAPS[chosen]) chosen = Object.keys(BASEMAPS)[0];
+        const bases = {};
+        Object.keys(BASEMAPS).forEach((name) => { const b = BASEMAPS[name]; bases[name] = L.tileLayer(b.url, { maxNativeZoom: b.native, maxZoom: 20, attribution: b.attribution }); });
+        bases[chosen].addTo(mapState.map);
+        L.control.layers(bases, null, { position: 'topright', collapsed: true }).addTo(mapState.map);
+        mapState.map.on('baselayerchange', (e) => { try { localStorage.setItem('archtrip:basemap', e.name); } catch (x) { /* ignore */ } });
+        mapState.layer = L.layerGroup().addTo(mapState.map);
+      }
+      updateMarkers(L);
+    }).catch((e) => { el.innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; });
+  }
+
+  function updateMarkers(L) {
+    const layer = mapState.layer;
+    layer.clearLayers();
+    const items = visibleLandmarks();
+    const shown = items.filter(located);
+    const pts = [];
+    state.stops.filter((s) => s.lat != null).forEach((s) => {
+      L.marker([s.lat, s.lon], { icon: L.divIcon({ className: '', html: '<div class="stopicon">' + s.position + '</div>', iconSize: [22, 20], iconAnchor: [11, 10] }), zIndexOffset: 1000 })
+        .bindTooltip(s.position + '. ' + s.city).addTo(layer);
+      pts.push([s.lat, s.lon]);
+    });
+    const routePts = state.stops.filter((s) => s.lat != null).map((s) => [s.lat, s.lon]);
+    if (routePts.length > 1) L.polyline(routePts, { color: '#111', weight: 1.5, dashArray: '4 6', opacity: .6 }).addTo(layer);
+    // a landmark more than ~150 km from every stop is almost certainly mis-located:
+    // keep it on the map (so it can be spotted) but don't let it drive the zoom
+    const km = (a, b) => { const r = Math.PI / 180, x = Math.sin((b[0] - a[0]) * r / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin((b[1] - a[1]) * r / 2) ** 2; return 12742 * Math.asin(Math.sqrt(x)); };
+    let far = 0;
+    shown.forEach((lm) => {
+      const p = [lm.lat, lm.lon];
+      const offRoute = routePts.length > 0 && routePts.every((s) => km(s, p) > 150);
+      const m = L.circleMarker(p, { radius: 7, color: COLORS[lm.status] || '#111', weight: 2, fillColor: offRoute ? '#b3261e' : '#fff', fillOpacity: .9 });
+      m.bindTooltip(lm.architect + ' — ' + lm.name + (offRoute ? ' (¿mal localizado?)' : ''));
+      m.bindPopup(() => popupView(state.landmarks.find((x) => x.id === lm.id) || lm), { maxWidth: 280 });
+      m.addTo(layer);
+      if (offRoute) far++; else pts.push(p);
+    });
+    if (!mapState.fitted && pts.length) { mapState.map.fitBounds(pts, { padding: [30, 30] }); mapState.fitted = true; }
+    const hidden = items.length - shown.length;
+    const legend = Object.keys(COLORS).map((s) => '<span><i style="background:' + COLORS[s] + '"></i>' + FILTER_LABEL[s] + '</span>').join('');
+    document.getElementById('map-note').innerHTML = legend + '<span class="muted">' + shown.length + ' hitos en el mapa'
+      + (hidden ? ' · ' + hidden + ' sin localizar con precisión no se muestran (ver Lista)' : '')
+      + (far ? ' · <span class="warn">' + far + ' muy lejos de la ruta (relleno rojo): probablemente mal localizados, corrígelos con editar</span>' : '') + '</span>';
+  }
+
+  function renderList() {
+    const el = (id) => document.getElementById(id);
+    if (!el('list')) return;
+    el('tabs').innerHTML = tabsView();
+    el('views').innerHTML = viewsView();
+    el('route').innerHTML = routeView();
+    el('progress').innerHTML = progressView();
+    el('msg').innerHTML = msgView();
+    if (state.view === 'mapa') renderMap();
+    else el('list').innerHTML = listView();
+  }
+
+  // Cheap refresh of one landmark wherever it is shown (used while enrichment trickles in).
+  function patchCard(lm) {
+    const card = document.getElementById('card-' + lm.id), rowEl = document.getElementById('lm-' + lm.id);
+    if ((state.view === 'fotos' || state.view === 'arquitectos') && card) card.outerHTML = cardView(lm);
+    else if (state.view === 'lista' && rowEl && state.editing !== lm.id) rowEl.outerHTML = landmarkView(lm);
+    else if (state.view === 'mapa' && mapState.map && window.L) updateMarkers(window.L);
+    else renderList();
+    if (state.detail === lm.id) renderDetail();
+  }
+
+  // ---- ficha
+  function renderDetail() {
+    const box = document.getElementById('overlay');
+    if (!box) return;
+    const lm = state.detail != null ? state.landmarks.find((x) => x.id === state.detail) : null;
+    document.body.classList.toggle('locked', !!lm);
+    if (!lm) { box.innerHTML = ''; return; }
+    const list = orderedVisible();
+    const idx = list.findIndex((x) => x.id === lm.id);
+    const photos = photosOf(lm), plans = plansOf(lm), all = photos.concat(plans);
+    if (state.detailImg >= all.length) state.detailImg = 0;
+    const cur = all[state.detailImg];
+    const thumbs = (arr, offset) => arr.map((p, i) => '<img src="' + attr(p.thumb) + '" alt="" class="' + (offset + i === state.detailImg ? 'on' : '') + '" data-action="show-img" data-i="' + (offset + i) + '"'
+      + (p.id != null ? ' draggable="true" data-img="' + p.id + '" title="Arrastra para reordenar"' : '') + ' onerror="this.style.display=\'none\'">').join('');
+    const stage = cur ? '<img src="' + attr(cur.url) + '" alt="" onerror="this.onerror=null;this.src=\'' + attr(cur.thumb) + '\'">'
+      : '<div class="muted">' + (lm.images_status === 'pendiente' && !STANDALONE ? '⏳ buscando fotos y planos…' : 'sin fotos — ') + (cur ? '' : '<a href="' + attr(imagesUrl(lm)) + '" target="_blank" rel="noopener">buscar imágenes</a>') + '</div>';
+    const caption = cur ? esc(cur.title || '') + (cur.page_url && !cur.manual && cur.source !== 'manual' ? ' · <a href="' + attr(cur.page_url) + '" target="_blank" rel="noopener">ver en Commons</a>' : '')
+      + (cur.id == null ? '' : ' · <button class="link" data-action="set-kind" data-id="' + lm.id + '" data-img="' + cur.id + '" data-kind="' + (cur.kind === 'foto' ? 'plano' : 'foto') + '">' + (cur.kind === 'foto' ? 'es un plano' : 'es una foto') + '</button>'
+        + ' · <button class="link" data-action="delete-image" data-id="' + lm.id + '" data-img="' + cur.id + '">quitar esta imagen</button>') : '';
+    box.innerHTML = '<div class="detail" id="detail">'
+      + '<div class="dhead"><span class="muted">' + (idx + 1) + ' / ' + list.length + '</span>'
+      + '<span class="arch" style="font-weight:bold;text-transform:uppercase">' + esc(lm.architect) + '</span><span>' + esc(lm.name) + '</span>'
+      + '<div class="dnav"><label class="check" title="Al pasar con las flechas o C/P/X no se muestran los descartados"><input type="checkbox" data-toggle="skipRejected" ' + (state.skipRejected ? 'checked' : '') + '> saltar descartados</label>'
+      + '<button class="quiet" data-action="detail-prev" ' + (idx <= 0 ? 'disabled' : '') + '>‹ anterior</button>'
+      + '<button class="quiet" data-action="detail-next" ' + (idx >= list.length - 1 ? 'disabled' : '') + '>siguiente ›</button>'
+      + '<button data-action="close-detail">✕ cerrar</button></div></div>'
+      + '<div class="dmain"><div class="dviewer"><div class="stage">' + stage + '</div><div class="caption">' + caption + '</div>'
+      + (all.length > 1 || plans.length ? '<div class="strip">' + (photos.length ? '<span class="lab">Fotos</span>' + thumbs(photos, 0) : '')
+        + (plans.length ? '<span class="lab">Planos y secciones</span>' + thumbs(plans, photos.length) : '') + '</div>' : '')
+      + '</div>'
+      + '<div class="dside"><div class="arch">' + esc(lm.architect) + '</div><div class="name">' + esc(lm.name) + '</div>'
+      + '<div class="muted" style="margin-top:4px">' + [esc(lm.city), lm.year ? esc(lm.year) : null, driveText(lm)].filter(Boolean).join(' · ') + '</div>'
+      + '<div class="actions">' + statusButtons(lm, trashButton(lm)) + '</div>'
+      + '<div class="bigbtns"><a class="btn" href="' + attr(googleUrl(lm)) + '" target="_blank" rel="noopener">Buscar en Google</a>'
+      + '<a class="btn" href="' + attr(imagesUrl(lm)) + '" target="_blank" rel="noopener">Buscar en Google Imágenes</a></div>'
+      + '<div class="links small">' + linksView(lm) + '</div>'
+      + (lm.notes ? '<div class="notes small">' + esc(lm.notes) + '</div>' : '')
+      + '<div class="small" style="margin-top:10px"><button class="link" data-action="edit" data-id="' + lm.id + '">editar</button>'
+      + ' <button class="link" data-action="add-image-form" data-id="' + lm.id + '">añadir foto o plano</button>'
+      + (STANDALONE ? '' : ' <button class="link" data-action="refresh-images" data-id="' + lm.id + '">buscar fotos otra vez</button>') + '</div>'
+      + (state.addingImage ? addImageView(lm) : '')
+      + (state.editing === lm.id ? editView(lm) : '')
+      + '<div class="keys">Teclas: <kbd>←</kbd> <kbd>→</kbd> hito anterior / siguiente · <kbd>↑</kbd> <kbd>↓</kbd> otra imagen · '
+      + '<kbd>C</kbd> curar · <kbd>P</kbd> posible · <kbd>X</kbd> descartar (y pasa al siguiente) · <kbd>Supr</kbd> eliminar del todo · <kbd>Esc</kbd> cerrar · arrastra las miniaturas para reordenarlas</div>'
+      + '<div style="margin-top:18px"><button class="danger" data-action="delete-landmark" data-id="' + lm.id + '">🗑 Eliminar hito del todo</button>'
+      + ' <span class="muted small">no se puede deshacer</span></div>'
+      + '</div></div></div>';
+    wireDrag(lm);
+  }
+
+  function addImageView(lm) {
+    return '<form class="edit" data-form="add-image" data-id="' + lm.id + '"><div class="grid2">'
+      + '<div><label>Tipo</label><select name="kind" style="font-family:inherit;font-size:14px;padding:6px 8px;width:100%;border:1px solid var(--line)"><option value="foto">Foto</option><option value="plano">Plano / sección</option></select></div>'
+      + '<div class="wide"><label>Dirección de la imagen (URL)</label><input type="text" name="url" placeholder="https://…  (clic derecho en una imagen → copiar dirección de la imagen)"></div>'
+      + (STANDALONE ? '' : '<div class="wide"><label>o un archivo de tu ordenador</label><input type="file" name="file" accept="image/*"></div>')
+      + '</div><div class="row" style="margin-top:10px"><button type="submit">Añadir</button>'
+      + '<button type="button" class="quiet" data-action="cancel-add-image">Cancelar</button></div></form>';
+  }
+
+  // Reorder pictures by dragging thumbnails (within the same strip: photos or drawings).
+  function wireDrag(lm) {
+    const imgs = Array.from(document.querySelectorAll('#detail .strip img[draggable]'));
+    let dragged = null;
+    imgs.forEach((el) => {
+      el.addEventListener('dragstart', (e) => { dragged = el; el.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', el.dataset.img); } catch (x) { /* ie */ } });
+      el.addEventListener('dragend', () => { el.classList.remove('dragging'); imgs.forEach((x) => x.classList.remove('over')); });
+      el.addEventListener('dragover', (e) => { e.preventDefault(); if (dragged && dragged !== el) el.classList.add('over'); });
+      el.addEventListener('dragleave', () => el.classList.remove('over'));
+      el.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        if (!dragged || dragged === el) return;
+        const all = pictures(lm).filter((p) => p.id != null);
+        const from = all.findIndex((p) => String(p.id) === dragged.dataset.img), to = all.findIndex((p) => String(p.id) === el.dataset.img);
+        if (from < 0 || to < 0) return;
+        const moved = all.splice(from, 1)[0];
+        all.splice(to, 0, moved);   // kinds stay separate: the server orders by kind first, then position
+        try {
+          applyLandmark(await store.orderImages(lm.id, all.map((p) => p.id)));
+          state.detailImg = pictures(state.landmarks.find((x) => x.id === lm.id)).findIndex((p) => p.id === moved.id);
+          patchCard(state.landmarks.find((x) => x.id === lm.id)); renderDetail();
+        } catch (err) { fail(err); renderDetail(); }
+      });
+    });
+  }
+
+  function openDetail(id) { state.detail = id; state.detailImg = 0; state.addingImage = false; renderDetail(); }
+  function closeDetail() { state.detail = null; state.editing = null; renderDetail(); }
+  function detailMove(delta) {
+    const list = orderedVisible();
+    const idx = list.findIndex((x) => x.id === state.detail);
+    const next = list[idx + delta];
+    if (next) openDetail(next.id);
+  }
+
+  // ------------------------------------------------------------ actions
+  function say(text, type, list) { state.msg = { text, type: type || 'ok', list: list || [] }; }
+  function fail(err) { say(err.message || String(err), 'err', err.details); }
+
+  async function loadTrips() {
+    state.screen = 'trips';
+    try { state.trips = await store.listTrips(); } catch (e) { fail(e); }
+    render();
+  }
+
+  async function loadNewTrip(mode) {
+    state.screen = 'new'; state.newMode = mode || null;
+    render();
+    if (mode === 'ia' && state.promptText == null) {
+      try {
+        const res = await fetch('/api/templates/prompt.md');
+        state.promptText = await res.text();
+      } catch (e) { state.promptText = 'No se ha podido cargar el texto. Usa el botón "Descargar .md".'; }
+      if (state.screen === 'new') render();
+    }
+  }
+
+  async function loadTrip(id, keepMsg) {
+    try {
+      const d = await store.getTrip(id);
+      state.trip = d.trip; state.stops = d.stops; state.landmarks = d.landmarks; state.pending = d.pending;
+      state.screen = 'trip';
+      if (!keepMsg) state.msg = null;
+      state.editing = null; state.detail = null;
+      mapState.map = null; mapState.fitted = false;
+      render();
+      if (d.pending && d.pending.total > 0) runEnrich();
+    } catch (e) {
+      fail(e); state.screen = 'trips'; render();
+    }
+  }
+
+  function applyLandmark(lm) {
+    const i = state.landmarks.findIndex((x) => x.id === lm.id);
+    if (i >= 0) state.landmarks[i] = lm; else state.landmarks.push(lm);
+  }
+
+  async function runEnrich() {
+    if (STANDALONE || state.enrich.running || !state.trip) return;
+    const tripId = state.trip.id;
+    state.enrich = { running: true, remaining: state.pending ? state.pending.total : 0, total: state.pending ? state.pending.total : 0, error: null };
+    document.getElementById('progress').innerHTML = progressView();
+    try {
+      for (;;) {
+        const r = await store.enrichNext(tripId);
+        if (state.screen !== 'trip' || !state.trip || state.trip.id !== tripId) return;
+        state.enrich.remaining = r.remaining;
+        if (r.counts) state.pending = r.counts;
+        if (r.error) { state.enrich.error = r.error; break; }
+        if (r.landmark) { applyLandmark(r.landmark); patchCard(r.landmark); }
+        if (r.stop) { const i = state.stops.findIndex((s) => s.id === r.stop.id); if (i >= 0) state.stops[i] = r.stop; document.getElementById('route').innerHTML = routeView(); }
+        document.getElementById('progress').innerHTML = progressView();
+        if (r.done || !r.item) break;
+      }
+    } catch (e) {
+      state.enrich.error = e.message || 'Error de conexión';
+    } finally {
+      state.enrich.running = false;
+      if (state.screen === 'trip') renderList();
+    }
+  }
+
+  async function upload(kind, file) {
+    if (!file) return;
+    say('Leyendo ' + file.name + '…');
+    renderList();
+    try {
+      const r = await store.upload(kind, state.trip.id, file);
+      const text = kind === 'route'
+        ? r.added + ' paradas cargadas.'
+        : r.added + ' hitos nuevos, ' + r.updated + ' actualizados.';
+      say(text + (r.errors && r.errors.length ? ' Filas con problemas:' : ''), r.errors && r.errors.length ? 'err' : 'ok', r.errors);
+      await loadTrip(state.trip.id, true);
+    } catch (e) { fail(e); renderList(); }
+  }
+
+  async function setStatus(id, status, advance) {
+    const lm = state.landmarks.find((x) => x.id === id);
+    if (!lm) return;
+    const next = lm.status === status ? 'pendiente' : status;
+    const before = orderedVisible();
+    const idx = before.findIndex((x) => x.id === id);
+    const followingId = before[idx + 1] ? before[idx + 1].id : null;
+    try {
+      applyLandmark(await store.patchLandmark(id, { status: next }));
+      if (advance && state.detail === id) {
+        // the item may have just left the filtered list (e.g. "Pendientes"): pick the next survivor
+        const after = orderedVisible();
+        let target = after.find((x) => x.id === followingId);
+        if (!target && !after.find((x) => x.id === id)) target = after[Math.min(idx, after.length - 1)];
+        if (target) { state.detail = target.id; state.detailImg = 0; }
+        else if (!after.find((x) => x.id === id)) state.detail = null;
+      }
+      renderList(); renderDetail();
+    } catch (e) { fail(e); renderList(); }
+  }
+
+  async function saveEdit(form) {
+    const id = Number(form.dataset.id);
+    const fields = {};
+    new FormData(form).forEach((v, k) => { fields[k] = v; });
+    try {
+      applyLandmark(await store.patchLandmark(id, fields));
+      state.editing = null;
+      renderList(); renderDetail();
+      runEnrich();
+    } catch (e) { fail(e); renderList(); }
+  }
+
+  async function deleteLandmark(id) {
+    const lm = state.landmarks.find((x) => x.id === id);
+    if (!lm || !confirm('¿Eliminar "' + lm.name + '" del viaje definitivamente? No se puede deshacer.')) return;
+    const list = orderedVisible();
+    const idx = list.findIndex((x) => x.id === id);
+    try {
+      await store.deleteLandmark(id);
+      state.landmarks = state.landmarks.filter((x) => x.id !== id);
+      if (state.editing === id) state.editing = null;
+      if (state.detail === id) {
+        const after = orderedVisible();
+        const next = after[Math.min(idx, after.length - 1)];
+        state.detail = next ? next.id : null; state.detailImg = 0;
+      }
+      renderList(); renderDetail();
+    } catch (e) { fail(e); renderList(); }
+  }
+
+  async function addImage(form) {
+    const id = Number(form.dataset.id);
+    const file = form.file && form.file.files[0];
+    const kind = form.kind.value;
+    try {
+      let body;
+      if (file && !STANDALONE) { body = new FormData(); body.append('file', file); body.append('kind', kind); }
+      else body = { url: form.url.value.trim(), kind };
+      applyLandmark(await store.addImage(id, body));
+      state.addingImage = false; state.detailImg = pictures(state.landmarks.find((x) => x.id === id)).findIndex((p) => p.source === 'manual');
+      if (state.detailImg < 0) state.detailImg = 0;
+      patchCard(state.landmarks.find((x) => x.id === id)); renderDetail();
+    } catch (e) { alert(e.message || 'No se ha podido añadir la imagen'); }
+  }
+
+  const actions = {
+    'dismiss-msg': () => { state.msg = null; state.screen === 'trip' ? renderList() : render(); },
+    'delete-trip': async (el) => {
+      const t = state.trips.find((x) => x.id === Number(el.dataset.id));
+      if (!t || !confirm('¿Borrar el viaje "' + t.name + '" con todos sus hitos?')) return;
+      try { await store.deleteTrip(t.id); } catch (e) { fail(e); }
+      loadTrips();
+    },
+    'rename-trip': async () => {
+      const name = prompt('Nombre del viaje', state.trip.name);
+      if (!name || name.trim() === state.trip.name) return;
+      try { state.trip = await store.renameTrip(state.trip.id, name.trim()); render(); } catch (e) { fail(e); renderList(); }
+    },
+    'pick-file': (el) => { app.querySelector('input[data-upload="' + el.dataset.kind + '"]').click(); },
+    'filter': (el) => { state.filter = el.dataset.filter; mapState.fitted = false; renderList(); },
+    'view': (el) => {
+      state.view = el.dataset.view;
+      try { localStorage.setItem('archtrip:view', state.view); } catch (e) { /* ignore */ }
+      renderList();
+    },
+    'set-status': (el) => setStatus(Number(el.dataset.id), el.dataset.status, false),
+    'edit': (el) => { state.editing = Number(el.dataset.id); if (state.detail != null) renderDetail(); else { if (state.view !== 'lista') state.view = 'lista'; renderList(); } },
+    'cancel-edit': () => { state.editing = null; renderList(); renderDetail(); },
+    'delete-landmark': (el) => deleteLandmark(Number(el.dataset.id)),
+    'retry-geocode': async (el) => {
+      try { applyLandmark(await store.patchLandmark(Number(el.dataset.id), { retry_geocode: true })); state.editing = null; renderList(); renderDetail(); runEnrich(); }
+      catch (e) { fail(e); renderList(); }
+    },
+    'refresh-images': async (el) => {
+      try { applyLandmark(await store.refreshImages(Number(el.dataset.id))); state.editing = null; state.detailImg = 0; renderList(); renderDetail(); runEnrich(); }
+      catch (e) { fail(e); renderList(); }
+    },
+    'delete-image': async (el) => {
+      try { applyLandmark(await store.deleteImage(Number(el.dataset.id), Number(el.dataset.img))); state.detailImg = Math.max(0, state.detailImg - 1); patchCard(state.landmarks.find((x) => x.id === Number(el.dataset.id))); renderDetail(); }
+      catch (e) { fail(e); renderList(); }
+    },
+    'retry-enrich': () => { state.enrich.error = null; runEnrich(); },
+    'save-copy': () => local.saveCopy(),
+    'new-mode': (el) => { location.hash = '#/nuevo/' + el.dataset.mode; },
+    'copy-prompt': async () => {
+      const note = document.getElementById('copy-note');
+      try { await navigator.clipboard.writeText(state.promptText || ''); note.textContent = 'copiado ✓'; }
+      catch (e) { note.textContent = 'no se ha podido copiar: selecciona el texto y cópialo a mano'; }
+      setTimeout(() => { if (note) note.textContent = ''; }, 3000);
+    },
+    'open': (el) => openDetail(Number(el.dataset.id)),
+    'set-kind': async (el) => {
+      const id = Number(el.dataset.id), imgId = Number(el.dataset.img);
+      try {
+        applyLandmark(await store.setImageKind(id, imgId, el.dataset.kind));
+        const lm = state.landmarks.find((x) => x.id === id);
+        state.detailImg = Math.max(0, pictures(lm).findIndex((p) => p.id === imgId));   // keep showing the same picture
+        patchCard(lm); renderDetail();
+      } catch (e) { fail(e); renderDetail(); }
+    },
+    'add-image-form': () => { state.addingImage = true; renderDetail(); setTimeout(() => { const f = document.querySelector('[data-form="add-image"] input[name="url"]'); if (f) f.focus(); }, 0); },
+    'cancel-add-image': () => { state.addingImage = false; renderDetail(); },
+    'close-detail': () => closeDetail(),
+    'detail-prev': () => detailMove(-1),
+    'detail-next': () => detailMove(1),
+    'show-img': (el) => { state.detailImg = Number(el.dataset.i); renderDetail(); },
+  };
+
+  app.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-action]');
+    if (!el || !actions[el.dataset.action]) return;
+    e.preventDefault();
+    actions[el.dataset.action](el);
+  });
+
+  app.addEventListener('submit', async (e) => {
+    const form = e.target.closest('[data-form]');
+    if (!form) return;
+    e.preventDefault();
+    if (form.dataset.form === 'create-trip') {
+      const name = form.name.value.trim();
+      if (!name) return;
+      try { const t = await store.createTrip(name); location.hash = '#/viaje/' + t.id; } catch (err) { fail(err); render(); }
+    } else if (form.dataset.form === 'edit') {
+      saveEdit(form);
+    } else if (form.dataset.form === 'add-image') {
+      addImage(form);
+    }
+  });
+
+  app.addEventListener('change', (e) => {
+    const toggle = e.target.closest('input[data-toggle]');
+    if (toggle) {
+      state[toggle.dataset.toggle] = toggle.checked;
+      try { localStorage.setItem('archtrip:' + toggle.dataset.toggle, toggle.checked ? '1' : '0'); } catch (x) { /* ignore */ }
+      mapState.fitted = false;
+      renderList();
+      if (state.detail != null) { if (!orderedVisible().some((x) => x.id === state.detail)) { const first = orderedVisible()[0]; state.detail = first ? first.id : null; } renderDetail(); }
+      return;
+    }
+    const input = e.target.closest('input[data-upload]');
+    if (!input) return;
+    const file = input.files[0];
+    input.value = '';
+    upload(input.dataset.upload, file);
+  });
+
+  app.addEventListener('input', (e) => {
+    if (e.target.id === 'search') {
+      state.query = e.target.value; mapState.fitted = false;
+      if (state.view === 'mapa') renderMap(); else document.getElementById('list').innerHTML = listView();
+    }
+  });
+
+  // Keyboard curation inside the ficha (ignored while typing in a field).
+  document.addEventListener('keydown', (e) => {
+    if (state.detail == null) return;
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.ctrlKey || e.metaKey || e.altKey) return;
+    const lm = state.landmarks.find((x) => x.id === state.detail);
+    if (!lm) return;
+    const n = pictures(lm).length;
+    const k = e.key.toLowerCase();
+    if (e.key === 'Escape') closeDetail();
+    else if (e.key === 'ArrowRight') detailMove(1);
+    else if (e.key === 'ArrowLeft') detailMove(-1);
+    else if (e.key === 'ArrowDown' || e.key === ' ') { if (n) { state.detailImg = (state.detailImg + 1) % n; renderDetail(); } }
+    else if (e.key === 'ArrowUp') { if (n) { state.detailImg = (state.detailImg - 1 + n) % n; renderDetail(); } }
+    else if (k === 'c') setStatus(lm.id, 'curado', true);
+    else if (k === 'p') setStatus(lm.id, 'posible', true);
+    else if (k === 'x' || k === 'd') setStatus(lm.id, 'descartado', true);
+    else if (e.key === 'Delete') deleteLandmark(lm.id);
+    else return;
+    e.preventDefault();
+  });
+
+  // ------------------------------------------------------------ routing
+  function route() {
+    if (STANDALONE) { loadTrip(null); return; }
+    const m = location.hash.match(/^#\/viaje\/(\d+)/);
+    const n = location.hash.match(/^#\/nuevo(?:\/(ia|manual))?/);
+    if (m) loadTrip(Number(m[1])); else if (n) loadNewTrip(n[1]); else loadTrips();
+  }
+  window.addEventListener('hashchange', route);
+  route();
+})();
+</script>
+</body>
+</html>
