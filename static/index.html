@@ -116,6 +116,16 @@
   .leaflet-popup-content .actions { margin-top: 6px; gap: 5px; }
   .leaflet-popup-content .actions button { padding: 3px 7px; font-size: 12px; }
   .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 13px; }
+  .clusterico { background: none; border: 0; }
+  .clusterico svg { display: block; filter: drop-shadow(0 1px 1px rgba(0,0,0,.35)); }
+  .clusterico text { font: bold 12px "Courier New", monospace; fill: #111; }
+  .clusterlist { max-height: 300px; overflow: auto; }
+  .clusterlist .item { padding: 6px 0; border-top: 1px solid var(--line); }
+  .clusterlist .item:first-child { border-top: 0; padding-top: 0; }
+  .clusterlist .arch { font-weight: bold; text-transform: uppercase; }
+  .clusterlist .actions { margin-top: 4px; gap: 5px; }
+  .clusterlist .actions button { padding: 3px 7px; font-size: 12px; }
+  .leaflet-popup-content.wide { min-width: 260px; }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
 
   /* ---- ficha (detalle) */
@@ -207,6 +217,9 @@
   const COLORS = { pendiente: '#111', curado: '#2e7d4f', posible: '#b8860b', descartado: '#999' };
   const LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
   const LEAFLET_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+  const CLUSTER_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js';
+  const CLUSTER_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css';
+  const CLUSTER_LIST_MAX = 10;   // a cluster with up to this many landmarks opens a list popup instead of zooming
   // Free tile providers that need no API key (CARTO now asks for one). Order = order in the selector.
   const BASEMAPS = {
     'Claro (Esri gris)': { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', native: 16, attribution: 'Tiles &copy; Esri' },
@@ -240,7 +253,7 @@
     hideRejected: savedHide === '1', skipRejected: savedSkip === '1',
     enrich: { running: false, remaining: 0, error: null },
   };
-  const mapState = { map: null, layer: null, fitted: false };
+  const mapState = { map: null, layer: null, cluster: null, fitted: false, listPopup: null };
 
   // ------------------------------------------------------------ helpers
   const esc = (s) => String(s == null ? '' : s)
@@ -726,16 +739,51 @@
 
   // ---- mapa (Leaflet, loaded on first use)
   let leafletPromise = null;
-  function loadLeaflet() {
-    if (window.L) return Promise.resolve(window.L);
-    if (leafletPromise) return leafletPromise;
-    leafletPromise = new Promise((resolve, reject) => {
-      const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = LEAFLET_CSS; document.head.appendChild(css);
-      const js = document.createElement('script'); js.src = LEAFLET_JS;
-      js.onload = () => resolve(window.L); js.onerror = () => { leafletPromise = null; reject(new Error('No se ha podido cargar el mapa (¿sin conexión?)')); };
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const js = document.createElement('script'); js.src = src; js.onload = resolve; js.onerror = () => reject(new Error('No se ha podido cargar el mapa (¿sin conexión?)'));
       document.head.appendChild(js);
     });
+  }
+  function loadLeaflet() {
+    if (window.L && window.L.markerClusterGroup) return Promise.resolve(window.L);
+    if (leafletPromise) return leafletPromise;
+    [LEAFLET_CSS, CLUSTER_CSS].forEach((href) => { const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = href; document.head.appendChild(css); });
+    leafletPromise = loadScript(LEAFLET_JS).then(() => loadScript(CLUSTER_JS)).then(() => window.L)
+      .catch((e) => { leafletPromise = null; throw e; });
     return leafletPromise;
+  }
+
+  // Cluster bubble: count in the middle, ring split by status colours.
+  function clusterIcon(cluster) {
+    const markers = cluster.getAllChildMarkers();
+    const counts = {};
+    markers.forEach((m) => { counts[m.options.status] = (counts[m.options.status] || 0) + 1; });
+    const total = markers.length, r = 15, cx = 18, cy = 18, C = 2 * Math.PI * r;
+    let offset = 0, segs = '';
+    Object.keys(COLORS).forEach((st) => {
+      const n = counts[st] || 0;
+      if (!n) return;
+      const len = C * n / total;
+      segs += '<circle r="' + r + '" cx="' + cx + '" cy="' + cy + '" fill="none" stroke="' + COLORS[st] + '" stroke-width="5" stroke-dasharray="' + len + ' ' + (C - len) + '" stroke-dashoffset="' + (-offset) + '" transform="rotate(-90 ' + cx + ' ' + cy + ')"/>';
+      offset += len;
+    });
+    const html = '<svg width="36" height="36" viewBox="0 0 36 36"><circle r="' + r + '" cx="' + cx + '" cy="' + cy + '" fill="#fff"/>' + segs
+      + '<text x="' + cx + '" y="' + (cy + 4) + '" text-anchor="middle">' + total + '</text></svg>';
+    return L.divIcon({ html, className: 'clusterico', iconSize: [36, 36], iconAnchor: [18, 18] });
+  }
+
+  function clusterListView(ids) {
+    const items = ids.map((id) => state.landmarks.find((x) => x.id === id)).filter(Boolean);
+    return '<div class="clusterlist">' + items.map((lm) => '<div class="item"><div class="arch">' + esc(lm.architect) + '</div>'
+      + '<div>' + esc(lm.name) + ' <button class="link small" data-action="open" data-id="' + lm.id + '">ficha</button></div>'
+      + '<div class="actions">' + statusButtons(lm, trashButton(lm)) + '</div></div>').join('') + '</div>';
+  }
+
+  function openClusterList(latlng, ids) {
+    // openOn closes any previous popup first (which clears listPopup), so record it afterwards
+    L.popup({ maxWidth: 320, className: 'clusterpopup' }).setLatLng(latlng).setContent(clusterListView(ids)).openOn(mapState.map);
+    mapState.listPopup = { latlng, ids };
   }
 
   function popupView(lm) {
@@ -751,7 +799,7 @@
     if (!el) return;
     if (!document.getElementById('map')) {
       el.innerHTML = '<div id="map"></div><div class="legend" id="map-note"></div>';
-      mapState.map = null; mapState.fitted = false;
+      mapState.map = null; mapState.cluster = null; mapState.fitted = false; mapState.listPopup = null;
     }
     loadLeaflet().then((L) => {
       if (!document.getElementById('map') || state.view !== 'mapa') return;
@@ -765,7 +813,17 @@
         bases[chosen].addTo(mapState.map);
         L.control.layers(bases, null, { position: 'topright', collapsed: true }).addTo(mapState.map);
         mapState.map.on('baselayerchange', (e) => { try { localStorage.setItem('archtrip:basemap', e.name); } catch (x) { /* ignore */ } });
-        mapState.layer = L.layerGroup().addTo(mapState.map);
+        mapState.layer = L.layerGroup().addTo(mapState.map);            // stops + route line, never clustered
+        // landmarks cluster only when they really pile up (small radius); a small cluster opens a
+        // list with curation buttons, a big one zooms in; identical spots spread out on max zoom
+        mapState.cluster = L.markerClusterGroup({ maxClusterRadius: 28, showCoverageOnHover: false, zoomToBoundsOnClick: false,
+          spiderfyOnMaxZoom: true, spiderfyDistanceMultiplier: 1.4, iconCreateFunction: clusterIcon }).addTo(mapState.map);
+        mapState.cluster.on('clusterclick', (e) => {
+          const markers = e.layer.getAllChildMarkers();
+          if (markers.length <= CLUSTER_LIST_MAX) openClusterList(e.layer.getLatLng(), markers.map((m) => m.options.landmarkId));
+          else e.layer.zoomToBounds({ padding: [30, 30] });
+        });
+        mapState.map.on('popupclose', (e) => { if (e.popup && e.popup.options.className === 'clusterpopup') mapState.listPopup = null; });
       }
       updateMarkers(L);
     }).catch((e) => { el.innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; });
@@ -774,6 +832,7 @@
   function updateMarkers(L) {
     const layer = mapState.layer;
     layer.clearLayers();
+    mapState.cluster.clearLayers();
     const items = visibleLandmarks();
     const shown = items.filter(located);
     const pts = [];
@@ -791,13 +850,18 @@
     shown.forEach((lm) => {
       const p = [lm.lat, lm.lon];
       const offRoute = routePts.length > 0 && routePts.every((s) => km(s, p) > 150);
-      const m = L.circleMarker(p, { radius: 7, color: COLORS[lm.status] || '#111', weight: 2, fillColor: offRoute ? '#b3261e' : '#fff', fillOpacity: .9 });
+      const m = L.circleMarker(p, { radius: 7, color: COLORS[lm.status] || '#111', weight: 2, fillColor: offRoute ? '#b3261e' : '#fff', fillOpacity: .9,
+        status: lm.status, landmarkId: lm.id });
       m.bindTooltip(lm.architect + ' — ' + lm.name + (offRoute ? ' (¿mal localizado?)' : ''));
       m.bindPopup(() => popupView(state.landmarks.find((x) => x.id === lm.id) || lm), { maxWidth: 280 });
-      m.addTo(layer);
+      mapState.cluster.addLayer(m);
       if (offRoute) far++; else pts.push(p);
     });
     if (!mapState.fitted && pts.length) { mapState.map.fitBounds(pts, { padding: [30, 30] }); mapState.fitted = true; }
+    if (mapState.listPopup) {   // a list popup was open: keep it, refreshed, for the items still on the map
+      const ids = mapState.listPopup.ids.filter((id) => shown.some((lm) => lm.id === id));
+      if (ids.length) openClusterList(mapState.listPopup.latlng, ids); else { mapState.map.closePopup(); mapState.listPopup = null; }
+    }
     const hidden = items.length - shown.length;
     const legend = Object.keys(COLORS).map((s) => '<span><i style="background:' + COLORS[s] + '"></i>' + FILTER_LABEL[s] + '</span>').join('');
     document.getElementById('map-note').innerHTML = legend + '<span class="muted">' + shown.length + ' hitos en el mapa'
@@ -822,7 +886,7 @@
     const card = document.getElementById('card-' + lm.id), rowEl = document.getElementById('lm-' + lm.id);
     if ((state.view === 'fotos' || state.view === 'arquitectos') && card) card.outerHTML = cardView(lm);
     else if (state.view === 'lista' && rowEl && state.editing !== lm.id) rowEl.outerHTML = landmarkView(lm);
-    else if (state.view === 'mapa' && mapState.map && window.L) updateMarkers(window.L);
+    else if (state.view === 'mapa' && mapState.map && mapState.cluster && window.L) updateMarkers(window.L);
     else renderList();
     if (state.detail === lm.id) renderDetail();
   }
@@ -950,7 +1014,7 @@
       state.screen = 'trip';
       if (!keepMsg) state.msg = null;
       state.editing = null; state.detail = null;
-      mapState.map = null; mapState.fitted = false;
+      mapState.map = null; mapState.cluster = null; mapState.fitted = false; mapState.listPopup = null;
       render();
       if (d.pending && d.pending.total > 0) runEnrich();
     } catch (e) {

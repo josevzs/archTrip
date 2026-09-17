@@ -58,7 +58,10 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
      descartadas aparece una papelera 🗑 para eliminarlas del todo.
    - **Arquitectos**: las mismas tarjetas agrupadas por estudio/arquitecto, los más repetidos primero.
    - **Mapa**: paradas numeradas, ruta y un punto por hito coloreado según estado; el popup
-     tiene los botones de curado. El control de capas (arriba a la derecha) cambia el mapa
+     tiene los botones de curado. Los hitos que se solapan se agrupan en un círculo con el
+     número y un anillo de colores por estado: un grupo pequeño abre una lista con los botones
+     de curado de todos, uno grande acerca el zoom, y los que caen en el mismo punto se
+     despliegan en abanico al máximo zoom. El control de capas (arriba a la derecha) cambia el mapa
      base: gris claro/oscuro, topográfico, National Geographic, satélite y calles (Esri),
      OpenStreetMap y su versión humanitaria, relieve (OpenTopoMap) y los mapas del Instituto
      Geográfico de Japón (GSI estándar, pálido y ortofoto); la elección se recuerda. Ninguno

@@ -136,17 +136,24 @@ try {
   // ---- mapa
   await evaluate(`document.querySelector('[data-action="view"][data-view="mapa"]').click()`); await sleep(4000);
   check('leaflet loaded', await evaluate(`!!window.L && !!document.querySelector('.leaflet-container')`));
-  check('markers drawn', await evaluate(count('.leaflet-interactive')) >= ids.length + 1);   // circles + route line
+  check('markers or clusters drawn', await evaluate(count('.leaflet-interactive')) + await evaluate(count('.clusterico')) >= 3);
   check('stop icons drawn', await evaluate(count('.stopicon')) === 2);
   check('legend mentions count', (await evaluate(text('#map-note'))).includes('hitos en el mapa'));
   check('basemap selector offers providers', await evaluate(count('.leaflet-control-layers-base input')) >= 8);
   await evaluate(`Array.from(document.querySelectorAll('.leaflet-control-layers-base label')).find(l => l.textContent.includes('GSI estándar')).querySelector('input').click()`); await sleep(1500);
   check('switching basemap loads other tiles', await evaluate(`Array.from(document.querySelectorAll('.leaflet-tile')).some(t => t.src.includes('cyberjapandata'))`));
   check('basemap choice remembered', (await evaluate(`localStorage.getItem('archtrip:basemap')`)) === 'Japón — GSI estándar');
-  await evaluate(`document.querySelectorAll('path.leaflet-interactive')[1].dispatchEvent(new MouseEvent('click', {bubbles:true}))`); await sleep(500);
-  check('popup opens with actions', await evaluate(count('.leaflet-popup [data-action="set-status"]')) === 3);
-  await evaluate(`document.querySelector('.leaflet-popup [data-action="set-status"][data-status="posible"]').click()`); await sleep(600);
-  check('status change from popup recolours marker', (await evaluate(`Array.from(document.querySelectorAll('path.leaflet-interactive')).map(p => p.getAttribute('stroke')).join(',')`)).includes('#b8860b'));
+  check('overlapping landmarks cluster into a bubble', await evaluate(count('.clusterico')) >= 1, await evaluate(count('.clusterico')));
+  await evaluate(`document.querySelector('.clusterico').dispatchEvent(new MouseEvent('click', {bubbles:true}))`); await sleep(600);
+  check('small cluster opens a list with curation buttons', await evaluate(count('.leaflet-popup .clusterlist .item')) >= 2 && await evaluate(count('.leaflet-popup [data-action="set-status"]')) >= 6);
+  const listId = Number(await evaluate(`document.querySelector('.leaflet-popup .clusterlist [data-action="set-status"]').dataset.id`));
+  await evaluate(`document.querySelector('.leaflet-popup .clusterlist [data-action="set-status"][data-id="${listId}"][data-status="curado"]').click()`); await sleep(1000);
+  const listStatus = (await (await fetch(`${BASE}/api/trips/${TRIP}`)).json()).landmarks.find((l) => l.id === listId).status;
+  const ringColors = await evaluate(`Array.from(document.querySelectorAll('.clusterico circle')).map(c => c.getAttribute('stroke')).join(',')`);
+  const expectColor = { pendiente: '#111', curado: '#2e7d4f', posible: '#b8860b', descartado: '#999' }[listStatus];
+  check('status change from the list keeps the list open', await evaluate(count('.leaflet-popup .clusterlist')) === 1, await evaluate(count('.leaflet-popup .clusterlist')));
+  check('cluster ring reflects the new status', ringColors.includes(expectColor), listStatus + ' ' + ringColors);
+  await evaluate(`document.querySelector('.leaflet-popup-close-button').click()`); await sleep(300);
 
   // ---- ficha: add a picture by URL, remove it, delete a landmark with Supr
   await evaluate(`document.querySelector('[data-action="view"][data-view="fotos"]').click()`); await sleep(400);
@@ -207,11 +214,15 @@ try {
   await goto(`file:///${ROOT}/data/export.html`, 1500);
   await evaluate(`document.querySelector('[data-action="view"][data-view="fotos"]').click()`); await sleep(300);
   check('standalone cards with photos', await evaluate(count('.card .pic img')) >= 1);
+  const saCard = await evaluate(`document.querySelector('.card').id`);
+  const saWasCurado = await evaluate(`document.querySelector('.card').classList.contains('curado')`);
   await evaluate(`document.querySelector('.card .pic').click()`); await sleep(400);
   check('standalone ficha', await evaluate(`!!document.querySelector('#detail .stage img')`));
   await key('c', 'KeyC'); await key('Escape');
   await goto(`file:///${ROOT}/data/export.html`, 1500);
-  check('standalone keyboard edit persisted', await evaluate(count('.card.curado')) >= 1 || await evaluate(count('.lm.curado')) >= 1);
+  await evaluate(`document.querySelector('[data-action="view"][data-view="fotos"]').click()`); await sleep(300);
+  await evaluate(`{ const t = document.querySelector('[data-toggle="hideRejected"]'); if (t.checked) { t.checked = false; t.dispatchEvent(new Event('change', {bubbles:true})); } }`); await sleep(300);
+  check('standalone keyboard edit persisted', await evaluate(`document.getElementById('${saCard}').classList.contains('${saWasCurado ? 'pendiente' : 'curado'}')`));
   await evaluate(`document.querySelector('[data-action="view"][data-view="mapa"]').click()`); await sleep(4000);
   check('standalone map works (CDN)', await evaluate(`!!document.querySelector('.leaflet-container')`));
   check('buildCopy still works', typeof (await evaluate(`archtrip.buildCopy()`)) === 'string');
