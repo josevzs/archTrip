@@ -837,7 +837,8 @@
     const shown = items.filter(located);
     const pts = [];
     state.stops.filter((s) => s.lat != null).forEach((s) => {
-      L.marker([s.lat, s.lon], { icon: L.divIcon({ className: '', html: '<div class="stopicon">' + s.position + '</div>', iconSize: [22, 20], iconAnchor: [11, 10] }), zIndexOffset: 1000 })
+      // hangs up-left of the exact point and sits under the landmark bubbles, so a stop never hides a cluster
+      L.marker([s.lat, s.lon], { icon: L.divIcon({ className: '', html: '<div class="stopicon">' + s.position + '</div>', iconSize: [22, 20], iconAnchor: [24, 22] }), zIndexOffset: -1000 })
         .bindTooltip(s.position + '. ' + s.city).addTo(layer);
       pts.push([s.lat, s.lon]);
     });
