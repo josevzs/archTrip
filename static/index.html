@@ -210,7 +210,9 @@
   // Free tile providers that need no API key (CARTO now asks for one). Order = order in the selector.
   const BASEMAPS = {
     'Claro (Esri gris)': { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', native: 16, attribution: 'Tiles &copy; Esri' },
-    'OpenStreetMap': { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', native: 19, attribution: '&copy; OpenStreetMap' },
+    // OSM France's servers, not openstreetmap.org's own: those block third-party apps and any
+    // request without a Referer (which is how a standalone copy opened from file:// loads).
+    'OpenStreetMap': { url: 'https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', native: 20, attribution: '&copy; OpenStreetMap France' },
     'Topográfico (Esri)': { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', native: 19, attribution: 'Tiles &copy; Esri' },
     'National Geographic (Esri)': { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer/tile/{z}/{y}/{x}', native: 16, attribution: 'Tiles &copy; Esri, National Geographic' },
     'Oscuro (Esri gris)': { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', native: 16, attribution: 'Tiles &copy; Esri' },
