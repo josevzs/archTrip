@@ -127,6 +127,17 @@ Osaka → Tokio con ~300 hitos. La columna Notas conserva la prioridad del profe
 los avisos ([R] reserva, [E] solo exterior, [X] no visitable) y sus comentarios. Sirve para
 probar la herramienta con volumen real: subirlos a un viaje nuevo y dejar que localice.
 
+## Copias de seguridad
+
+`scripts/backup.sh` guarda en `data/backups/` una instantánea consistente de la base de datos
+(`auto-<fecha>.db`), las fotos subidas y una copia HTML autónoma de cada viaje — **solo si el
+contenido ha cambiado** desde la última copia automática (se compara un hash del volcado, no la
+fecha) — y conserva las 7 últimas distintas (`KEEP=n` para cambiarlo). Programado dos veces al día
+con cron: `0 3,15 * * * /srv/apps/archtrip/scripts/backup.sh >> …/data/backups/backup.log`.
+Los archivos sin el prefijo `auto-` (copias manuales) no se tocan. Restaurar: parar el contenedor,
+copiar el `.db` elegido sobre `data/archtrip.db` (y descomprimir el `.tgz` en `data/` si hace
+falta) y arrancar.
+
 ## Desarrollo
 
 ```
