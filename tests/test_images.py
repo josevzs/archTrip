@@ -51,6 +51,7 @@ def fake_api(monkeypatch):
                 "2": {"title": "File:Sky House section.jpg", "index": 2, "imageinfo": [{"mime": "image/jpeg", "thumburl": "https://t/2.jpg"}]},
                 "3": {"title": "File:Sky House.jpg", "index": 3, "imageinfo": [{"mime": "image/jpeg", "thumburl": "https://t/3.jpg"}]},
                 "4": {"title": "File:Sky House.ogv", "index": 4, "imageinfo": [{"mime": "video/ogg", "thumburl": "https://t/4.jpg"}]},
+                "7": {"title": "File:Sky House book.djvu", "index": 5, "imageinfo": [{"mime": "image/vnd.djvu", "thumburl": "https://t/7.jpg"}]},
             }}}
         if params.get("generator") == "search":
             return {"query": {"pages": {"5": {"title": "File:Sky House elevation.png", "index": 1,
@@ -80,7 +81,7 @@ def test_fetch_images_assembles_photos_and_drawings(fake_api):
     assert ("plano", "Sky House plan.png") in kinds          # P3311
     assert ("plano", "Sky House section.jpg") in kinds       # classified by title
     assert ("plano", "Sky House elevation.png") in kinds     # in-category drawings search
-    assert not any("ogv" in t for _, t in kinds)             # videos skipped
+    assert not any("ogv" in t or "djvu" in t for _, t in kinds)   # videos and book scans skipped
     assert ("foto", "Sky House facade.jpg") in kinds         # drawings search hit that is really a photo
     assert "mime" not in r["images"][0]
     assert r["images"][0]["url"].startswith("https://commons.wikimedia.org/wiki/Special:FilePath/")

@@ -178,7 +178,7 @@ def _files_from_pages(pages):
     for p in sorted(pages.values(), key=lambda p: p.get("index", 0)):
         ii = (p.get("imageinfo") or [{}])[0]
         mime = ii.get("mime", "")
-        if not mime.startswith("image/") or "thumburl" not in ii:
+        if mime not in PICTURE_MIMES or "thumburl" not in ii:   # no djvu/pdf/tiff scans, no video
             continue
         title = p["title"].split(":", 1)[-1]
         out.append({
@@ -212,6 +212,7 @@ def commons_drawings(category, limit=8):
 
 
 DRAWING_MIMES = {"image/png", "image/svg+xml", "image/gif"}
+PICTURE_MIMES = {"image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml"}
 
 
 def is_drawing(title, mime=None):
