@@ -98,8 +98,13 @@ try {
   check('status persisted via keyboard', st.some((l) => l.status === 'curado'));
   await key('x', 'KeyX');
   check('X discards and advances', (await evaluate(text('#detail .dside .name'))) !== afterC);
+  check('ficha updates the address bar', /#\/viaje\/\d+\/hito\/\d+$/.test(await evaluate('location.hash')), await evaluate('location.hash'));
+  const deep = await evaluate('location.hash');
   await key('Escape');
-  check('Esc closes ficha', !(await evaluate(`!!document.getElementById('detail')`)));
+  check('Esc closes ficha', !(await evaluate(`!!document.getElementById('detail')`)) && /#\/viaje\/\d+$/.test(await evaluate('location.hash')));
+  await goto(`${BASE}/${deep}`, 2500);
+  check('deep link opens the ficha directly', await evaluate(`!!document.getElementById('detail')`) && await evaluate(count('#detail .dhead [data-action="copy-link"]')) === 1);
+  await key('Escape');
   check('rejected card hidden by default', await evaluate(count('.card.curado')) === 1 && await evaluate(count('.card.descartado')) === 0
     && await evaluate(`document.querySelector('[data-toggle="hideRejected"]').checked`));
   check('tabs updated', (await evaluate(text('#tabs'))).includes('Curados 1') && (await evaluate(text('#tabs'))).includes('Descartados 1'));

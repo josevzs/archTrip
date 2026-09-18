@@ -917,6 +917,7 @@
       + '<div class="dnav"><label class="check" title="Al pasar con las flechas o C/P/X no se muestran los descartados"><input type="checkbox" data-toggle="skipRejected" ' + (state.skipRejected ? 'checked' : '') + '> saltar descartados</label>'
       + '<button class="quiet" data-action="detail-prev" ' + (idx <= 0 ? 'disabled' : '') + '>‹ anterior</button>'
       + '<button class="quiet" data-action="detail-next" ' + (idx >= list.length - 1 ? 'disabled' : '') + '>siguiente ›</button>'
+      + (STANDALONE ? '' : '<button class="quiet" data-action="copy-link" data-id="' + lm.id + '" title="Copiar el enlace directo a esta ficha">enlace</button>')
       + '<button data-action="close-detail">✕ cerrar</button></div></div>'
       + '<div class="dmain"><div class="dviewer"><div class="stage">' + stage + '</div><div class="caption">' + caption + '</div>'
       + (all.length > 1 || plans.length ? '<div class="strip">' + (photos.length ? '<span class="lab">Fotos</span>' + thumbs(photos, 0) : '')
@@ -977,8 +978,8 @@
     });
   }
 
-  function openDetail(id) { state.detail = id; state.detailImg = 0; state.addingImage = false; renderDetail(); }
-  function closeDetail() { state.detail = null; state.editing = null; renderDetail(); }
+  function openDetail(id) { state.detail = id; state.detailImg = 0; state.addingImage = false; renderDetail(); syncHash(); }
+  function closeDetail() { state.detail = null; state.editing = null; renderDetail(); syncHash(); }
   function detailMove(delta) {
     const list = orderedVisible();
     const idx = list.findIndex((x) => x.id === state.detail);
@@ -1008,7 +1009,7 @@
     }
   }
 
-  async function loadTrip(id, keepMsg) {
+  async function loadTrip(id, keepMsg, openId) {
     try {
       const d = await store.getTrip(id);
       state.trip = d.trip; state.stops = d.stops; state.landmarks = d.landmarks; state.pending = d.pending;
@@ -1017,10 +1018,18 @@
       state.editing = null; state.detail = null;
       mapState.map = null; mapState.cluster = null; mapState.fitted = false; mapState.listPopup = null;
       render();
+      if (openId && state.landmarks.some((x) => x.id === openId)) openDetail(openId);   // deep link to a ficha
       if (d.pending && d.pending.total > 0) runEnrich();
     } catch (e) {
       fail(e); state.screen = 'trips'; render();
     }
+  }
+
+  // Keep the address bar pointing at the open ficha so a link can be shared (#/viaje/T/hito/L).
+  function syncHash() {
+    if (STANDALONE || !state.trip) return;
+    const want = '#/viaje/' + state.trip.id + (state.detail != null ? '/hito/' + state.detail : '');
+    if (location.hash !== want) history.replaceState(null, '', want);
   }
 
   function applyLandmark(lm) {
@@ -1191,6 +1200,11 @@
     'add-image-form': () => { state.addingImage = true; renderDetail(); setTimeout(() => { const f = document.querySelector('[data-form="add-image"] input[name="url"]'); if (f) f.focus(); }, 0); },
     'cancel-add-image': () => { state.addingImage = false; renderDetail(); },
     'close-detail': () => closeDetail(),
+    'copy-link': async (el) => {
+      const url = location.origin + location.pathname + '#/viaje/' + state.trip.id + '/hito/' + el.dataset.id;
+      try { await navigator.clipboard.writeText(url); el.textContent = 'copiado ✓'; } catch (e) { prompt('Enlace a esta ficha', url); }
+      setTimeout(() => { el.textContent = 'enlace'; }, 2000);
+    },
     'detail-prev': () => detailMove(-1),
     'detail-next': () => detailMove(1),
     'show-img': (el) => { state.detailImg = Number(el.dataset.i); renderDetail(); },
@@ -1267,9 +1281,13 @@
   // ------------------------------------------------------------ routing
   function route() {
     if (STANDALONE) { loadTrip(null); return; }
-    const m = location.hash.match(/^#\/viaje\/(\d+)/);
+    const m = location.hash.match(/^#\/viaje\/(\d+)(?:\/hito\/(\d+))?/);
     const n = location.hash.match(/^#\/nuevo(?:\/(ia|manual))?/);
-    if (m) loadTrip(Number(m[1])); else if (n) loadNewTrip(n[1]); else loadTrips();
+    if (m) {
+      // same trip already open (e.g. the ficha changed the hash): just open the ficha, don't reload
+      if (state.screen === 'trip' && state.trip && state.trip.id === Number(m[1])) { if (m[2]) openDetail(Number(m[2])); else if (state.detail != null) closeDetail(); }
+      else loadTrip(Number(m[1]), false, m[2] ? Number(m[2]) : null);
+    } else if (n) loadNewTrip(n[1]); else loadTrips();
   }
   window.addEventListener('hashchange', route);
   route();

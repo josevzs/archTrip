@@ -74,7 +74,8 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
      `P` posible, `X` descartar (y pasa al siguiente), `Esc` cerrar. Las miniaturas se
      **reordenan arrastrándolas** (la primera es la foto principal) y "es un plano" / "es una
      foto" cambia una imagen de grupo.
-     "Quitar esta imagen" descarta una foto equivocada; "añadir foto o plano" acepta una URL
+     Cada ficha tiene enlace propio (`#/viaje/<id>/hito/<id>`, botón "enlace" para copiarlo)
+     que abre la app directamente en ella. "Quitar esta imagen" descarta una foto equivocada; "añadir foto o plano" acepta una URL
      (clic derecho en cualquier imagen de la web → copiar dirección) o un archivo del ordenador
      (se guarda reducido en `data/uploads/` y viaja dentro de la copia HTML). "Eliminar hito del
      todo" (o la tecla `Supr`) lo quita del viaje definitivamente — descartar solo lo aparta.
