@@ -134,9 +134,32 @@ probar la herramienta con volumen real: subirlos a un viaje nuevo y dejar que lo
 contenido ha cambiado** desde la última copia automática (se compara un hash del volcado, no la
 fecha) — y conserva las 7 últimas distintas (`KEEP=n` para cambiarlo). Programado dos veces al día
 con cron: `0 3,15 * * * /srv/apps/archtrip/scripts/backup.sh >> …/data/backups/backup.log`.
-Los archivos sin el prefijo `auto-` (copias manuales) no se tocan. Restaurar: parar el contenedor,
-copiar el `.db` elegido sobre `data/archtrip.db` (y descomprimir el `.tgz` en `data/` si hace
-falta) y arrancar.
+Los archivos sin el prefijo `auto-` (copias manuales) no se tocan. Restaurar: desde la página de
+administración (abajo), o a mano: parar el contenedor, copiar el `.db` elegido sobre
+`data/archtrip.db` (y descomprimir el `.tgz` en `data/` si hace falta) y arrancar.
+
+## Sesiones de edición y página de administración
+
+Cada cambio que alguien hace (curar, editar, borrar, subir plantillas, añadir o quitar fotos,
+renombrar o borrar viajes…) queda anotado en un diario con lo necesario para deshacerlo. Mirar
+no deja rastro: la **sesión** de un navegador se abre con su primer cambio (se identifica con
+una cookie, la IP y el navegador) y se da por cerrada tras **una hora sin cambios**. Los
+archivos de fotos borradas se conservan en `data/uploads/` por ese mismo motivo.
+
+La página de administración no tiene enlace: **triple clic sobre «archTrip» en el pie de
+página**, o `#/admin` en la dirección. Pide contraseña (`admin` por defecto; cámbiala con la
+variable de entorno `ARCHTRIP_ADMIN_PASSWORD`, por ejemplo en `docker-compose.yml`). Desde ahí:
+
+- ver las sesiones (quién, cuándo, qué viajes, resumen de acciones) y ponerles nombre;
+- abrir una sesión y **deshacer** un cambio suelto o **toda la sesión** de golpe (del último al
+  primero). Cada deshacer queda también registrado y se puede volver a deshacer;
+- buscar el **historial de un hito** por nombre o número: cuándo y en qué sesión se tocó;
+- **copias de seguridad**: crear una ahora, descargar cualquiera (`.db` o HTML autónomo),
+  descargar un volcado SQL de la base actual, o **restaurar** una copia `.db` (antes se guarda el
+  estado actual como `pre-restore-<fecha>.db`, así que también es reversible).
+
+El diario vive en la misma base de datos (tablas `sessions` y `changes`), así que entra en las
+copias de seguridad.
 
 ## Desarrollo
 
@@ -147,7 +170,8 @@ pytest
 
 - `archtrip/` — Flask: `db.py` (SQLite), `excel.py` (plantillas y parseo), `geo.py`
   (Nominatim/OSRM), `images.py` (Wikidata/Commons), `enrich.py` (un paso de trabajo por
-  llamada), `export.py` (HTML autónomo y ZIP Obsidian), `routes.py` (API `/api/*`).
+  llamada), `export.py` (HTML autónomo y ZIP Obsidian), `routes.py` (API `/api/*`),
+  `audit.py` (sesiones y diario de cambios), `admin.py` (API `/api/admin/*`: deshacer, copias).
 - `static/index.html` — todo el frontend (CSS y JS inline, sin build). El mismo archivo es
   la base del export HTML: el servidor solo le inyecta los datos en `<!--ARCHTRIP_DATA-->`.
 - La base de datos se crea sola al arrancar; `ARCHTRIP_DB` cambia su ruta.

@@ -1,8 +1,9 @@
 import os
 from pathlib import Path
 
-from flask import Flask, send_from_directory
+from flask import Flask, g, send_from_directory
 
+from . import audit
 from . import db as _db
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -21,9 +22,19 @@ def create_app(db_path=None):
 
     _db.init_app(app)
 
+    from .admin import adm
     from .routes import api
 
     app.register_blueprint(api, url_prefix="/api")
+    app.register_blueprint(adm, url_prefix="/api/admin")
+
+    @app.after_request
+    def _session_cookie(resp):
+        # a client gets its editing token the first time it changes something (audit.py)
+        token = getattr(g, "audit_new_token", None)
+        if token:
+            resp.set_cookie(audit.COOKIE, token, max_age=365 * 86400, httponly=True, samesite="Lax")
+        return resp
 
     @app.get("/")
     def index():

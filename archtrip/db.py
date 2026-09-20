@@ -64,6 +64,38 @@ CREATE TABLE IF NOT EXISTS landmark_images (
     position    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_landmark_images ON landmark_images (landmark_id, kind, position);
+
+-- Editing sessions (see audit.py): opened by the first change of a client, closed by inactivity.
+CREATE TABLE IF NOT EXISTS sessions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    token      TEXT NOT NULL,                          -- cookie token identifying the browser
+    ip         TEXT,
+    user_agent TEXT,
+    started_at TEXT NOT NULL,
+    last_at    TEXT NOT NULL,
+    last_ts    REAL NOT NULL,                          -- epoch seconds of the last change
+    name       TEXT                                    -- label given by the admin
+);
+
+-- Journal of every change, with what is needed to undo it.
+CREATE TABLE IF NOT EXISTS changes (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id    INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    at            TEXT NOT NULL,
+    trip_id       INTEGER,                             -- no FK: history must outlive the trip
+    landmark_id   INTEGER,
+    landmark_name TEXT,
+    action        TEXT NOT NULL,                       -- status | edit | delete_landmark | image_add | ...
+    field         TEXT,
+    old_value     TEXT,
+    new_value     TEXT,
+    snapshot      TEXT,                                -- JSON copy for re-creating what was removed
+    revertible    INTEGER NOT NULL DEFAULT 1,
+    revert_of     INTEGER,                             -- this change undoes that one
+    reverted_by   INTEGER                              -- set once undone
+);
+CREATE INDEX IF NOT EXISTS idx_changes_session ON changes (session_id);
+CREATE INDEX IF NOT EXISTS idx_changes_landmark ON changes (landmark_id);
 """
 
 # Columns added after the first release; applied to existing databases on startup.

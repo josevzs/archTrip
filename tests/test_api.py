@@ -309,12 +309,13 @@ def test_manual_images_url_and_upload(client, app, fake_geo):
     html = client.get(f"/api/trips/{tid}/export/html").data.decode("utf-8")
     assert "data:image/jpeg;base64," in html and "/uploads/" not in html.split("window.__ARCHTRIP__")[1][:200000]
 
-    # deleting removes the stored files
+    # deleting keeps the stored files (the admin journal can undo the deletion)
     import pathlib
     folder = pathlib.Path(app.config["UPLOAD_DIR"]) / str(lm["id"])
     assert len(list(folder.glob("*.jpg"))) == 2
-    client.delete(f"/api/landmarks/{lm['id']}/images/{up['id']}")
-    assert len(list(folder.glob("*.jpg"))) == 0
+    r = client.delete(f"/api/landmarks/{lm['id']}/images/{up['id']}")
+    assert [im["id"] for im in r.get_json()["images"]] != [up["id"]] and len(r.get_json()["images"]) == 1
+    assert len(list(folder.glob("*.jpg"))) == 2
 
 
 def test_links_step_fills_empty_urls_only(client, fake_geo, monkeypatch):

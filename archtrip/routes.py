@@ -2,7 +2,7 @@ import io
 
 from flask import Blueprint, abort, jsonify, request, send_file
 
-from . import enrich, excel, export, prompt, uploads
+from . import audit, enrich, excel, export, prompt, uploads
 from .db import get_db, row, rows
 
 api = Blueprint("api", __name__)
@@ -98,6 +98,7 @@ def create_trip():
         abort(400, description="El viaje necesita un nombre")
     db = get_db()
     cur = db.execute("INSERT INTO trips (name) VALUES (?)", (name,))
+    audit.log(db, "trip_create", cur.lastrowid, new=name)
     db.commit()
     return jsonify(row(db.execute("SELECT * FROM trips WHERE id = ?", (cur.lastrowid,)))), 201
 
@@ -111,19 +112,22 @@ def get_trip(trip_id):
 @api.patch("/trips/<int:trip_id>")
 def rename_trip(trip_id):
     db = get_db()
-    _trip_or_404(db, trip_id)
+    trip = _trip_or_404(db, trip_id)
     name = (request.get_json(silent=True) or {}).get("name", "").strip()
     if not name:
         abort(400, description="El viaje necesita un nombre")
-    db.execute("UPDATE trips SET name = ? WHERE id = ?", (name, trip_id))
-    db.commit()
+    if name != trip["name"]:
+        db.execute("UPDATE trips SET name = ? WHERE id = ?", (name, trip_id))
+        audit.log(db, "trip_rename", trip_id, old=trip["name"], new=name)
+        db.commit()
     return jsonify(row(db.execute("SELECT * FROM trips WHERE id = ?", (trip_id,))))
 
 
 @api.delete("/trips/<int:trip_id>")
 def delete_trip(trip_id):
     db = get_db()
-    _trip_or_404(db, trip_id)
+    trip = _trip_or_404(db, trip_id)
+    audit.log(db, "trip_delete", trip_id, old=trip["name"], snapshot=audit.trip_snapshot(db, trip_id))
     db.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
     db.commit()
     return "", 204
@@ -160,6 +164,8 @@ def upload_route(trip_id):
     stops, errors = excel.parse_route(_uploaded_file())
     if not stops:
         return jsonify({"error": "No se ha podido leer ninguna parada", "errors": errors}), 400
+    audit.log(db, "route_upload", trip_id, new=f"{len(stops)} paradas",
+              snapshot=rows(db.execute("SELECT * FROM route_stops WHERE trip_id = ? ORDER BY position", (trip_id,))))
     db.execute("DELETE FROM route_stops WHERE trip_id = ?", (trip_id,))
     db.executemany(
         "INSERT INTO route_stops (trip_id, position, city, country, notes) VALUES (?, ?, ?, ?, ?)",
@@ -186,7 +192,7 @@ def upload_landmarks(trip_id):
                                   (trip_id, it["name_key"])))
         if existing is None:
             geocode_status = "manual" if it["lat"] is not None else "pendiente"
-            db.execute(
+            cur = db.execute(
                 "INSERT INTO landmarks (trip_id, name, architect, city, address, year, notes, lat, lon, "
                 "geocode_status, url_archdaily, url_av, url_image1, url_image2, sort_order, name_key, status) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -194,6 +200,7 @@ def upload_landmarks(trip_id):
                  it["lat"], it["lon"], geocode_status, it["url_archdaily"], it["url_av"],
                  it["url_image1"], it["url_image2"], order, it["name_key"], it.get("status") or "pendiente"),
             )
+            audit.log(db, "create_landmark", trip_id, cur.lastrowid, it["name"], new="plantilla")
             added += 1
         else:
             # Keep curation state and (unless the row now says otherwise) the
@@ -222,6 +229,10 @@ def upload_landmarks(trip_id):
             # a status in the sheet only counts while the row was never curated here
             if it.get("status") and existing["status"] == "pendiente":
                 db.execute("UPDATE landmarks SET status = ? WHERE id = ?", (it["status"], existing["id"]))
+            after = row(db.execute("SELECT * FROM landmarks WHERE id = ?", (existing["id"],)))
+            if any(after[k] != existing[k] for k in audit.UPLOAD_FIELDS):
+                audit.log(db, "upload_update", trip_id, existing["id"], existing["name"], new="plantilla",
+                          snapshot={k: existing[k] for k in audit.UPLOAD_FIELDS})
             updated += 1
     db.commit()
     return jsonify({"added": added, "updated": updated, "errors": errors})
@@ -231,6 +242,10 @@ def upload_landmarks(trip_id):
 def clear_landmarks(trip_id):
     db = get_db()
     _trip_or_404(db, trip_id)
+    snaps = [audit.landmark_snapshot(db, r["id"]) for r in
+             db.execute("SELECT id FROM landmarks WHERE trip_id = ?", (trip_id,)).fetchall()]
+    if snaps:
+        audit.log(db, "clear_landmarks", trip_id, old=f"{len(snaps)} hitos", snapshot=snaps)
     db.execute("DELETE FROM landmarks WHERE trip_id = ?", (trip_id,))
     db.commit()
     return "", 204
@@ -252,13 +267,16 @@ def patch_landmark(lm_id):
     db = get_db()
     lm = _landmark_or_404(db, lm_id)
     body = request.get_json(silent=True) or {}
-    sets, params = [], []
+    sets, params, journal = [], [], []          # journal: audit.log kwargs, written once the UPDATE succeeds
+    coords_before = {"lat": lm["lat"], "lon": lm["lon"], "geocode_status": lm["geocode_status"]}
 
     if "status" in body:
         if body["status"] not in STATUSES:
             abort(400, description="Estado no válido")
         sets.append("status = ?")
         params.append(body["status"])
+        if body["status"] != lm["status"]:
+            journal.append(dict(action="status", field="status", old=lm["status"], new=body["status"]))
 
     for field in EDITABLE:
         if field in body:
@@ -267,6 +285,8 @@ def patch_landmark(lm_id):
                 abort(400, description=f"El campo {field} no puede quedar vacío")
             sets.append(f"{field} = ?")
             params.append(value or None)
+            if (value or None) != lm[field]:
+                journal.append(dict(action="edit", field=field, old=lm[field], new=value or None))
     if "name" in body or "architect" in body:
         sets.append("name_key = ?")
         params.append(excel.landmark_key(body.get("name", lm["name"]), body.get("architect", lm["architect"])))
@@ -278,15 +298,22 @@ def patch_landmark(lm_id):
         if lat is None:
             sets += ["lat = NULL", "lon = NULL", "geocode_status = 'pendiente'", "drive_source = NULL",
                      "nearest_stop_id = NULL", "drive_minutes = NULL", "drive_km = NULL"]
+            if lm["lat"] is not None:
+                journal.append(dict(action="edit", field="coords", snapshot=coords_before,
+                                    old=audit.coords_text(**coords_before), new=audit.coords_text(None, None)))
         elif (lat, lon) != (lm["lat"], lm["lon"]):
             sets += ["lat = ?", "lon = ?", "geocode_status = 'manual'", "drive_source = NULL"]
             params += [lat, lon]
+            journal.append(dict(action="edit", field="coords", snapshot=coords_before,
+                                old=audit.coords_text(**coords_before), new=audit.coords_text(lat, lon, "manual")))
 
     if body.get("retry_links"):
         sets.append("links_status = 'pendiente'")
+        journal.append(dict(action="retry_links"))
     if body.get("retry_geocode"):
         sets += ["lat = NULL", "lon = NULL", "geocode_status = 'pendiente'", "drive_source = NULL",
                  "nearest_stop_id = NULL", "drive_minutes = NULL", "drive_km = NULL"]
+        journal.append(dict(action="retry_geocode", old=audit.coords_text(**coords_before)))
 
     if sets:
         try:
@@ -295,6 +322,8 @@ def patch_landmark(lm_id):
             if "UNIQUE" in str(exc):
                 abort(400, description="Ya existe un hito con ese edificio y arquitecto")
             raise
+        for entry in journal:
+            audit.log(db, trip_id=lm["trip_id"], landmark_id=lm_id, landmark_name=lm["name"], **entry)
         db.commit()
     return jsonify(_landmark_or_404(db, lm_id))
 
@@ -303,9 +332,10 @@ def patch_landmark(lm_id):
 def refresh_images(lm_id):
     """Drop the fetched images and queue a new search (the enrich loop does the work)."""
     db = get_db()
-    _landmark_or_404(db, lm_id)
+    lm = _landmark_or_404(db, lm_id)
     db.execute("DELETE FROM landmark_images WHERE landmark_id = ? AND source != 'manual'", (lm_id,))
     db.execute("UPDATE landmarks SET images_status = 'pendiente' WHERE id = ?", (lm_id,))
+    audit.log(db, "refresh_images", lm["trip_id"], lm_id, lm["name"])
     db.commit()
     return jsonify(_landmark_or_404(db, lm_id))
 
@@ -314,7 +344,7 @@ def refresh_images(lm_id):
 def add_image(lm_id):
     """A photo/drawing added by hand: JSON {url, kind} or multipart file + kind."""
     db = get_db()
-    _landmark_or_404(db, lm_id)
+    lm = _landmark_or_404(db, lm_id)
     kind = (request.form.get("kind") or (request.get_json(silent=True) or {}).get("kind") or "foto")
     if kind not in ("foto", "plano"):
         abort(400, description="Tipo no válido")
@@ -332,8 +362,10 @@ def add_image(lm_id):
         thumb, title, page_url = url, url.rsplit("/", 1)[-1][:120] or "imagen", url
     pos = db.execute("SELECT COALESCE(MIN(position), 0) - 1 FROM landmark_images WHERE landmark_id = ?",
                      (lm_id,)).fetchone()[0]
-    db.execute("INSERT INTO landmark_images (landmark_id, kind, url, thumb, title, page_url, source, position) "
-               "VALUES (?, ?, ?, ?, ?, ?, 'manual', ?)", (lm_id, kind, url, thumb, title, page_url, pos))
+    cur = db.execute("INSERT INTO landmark_images (landmark_id, kind, url, thumb, title, page_url, source, position) "
+                     "VALUES (?, ?, ?, ?, ?, ?, 'manual', ?)", (lm_id, kind, url, thumb, title, page_url, pos))
+    audit.log(db, "image_add", lm["trip_id"], lm_id, lm["name"], new=title,
+              snapshot=row(db.execute("SELECT * FROM landmark_images WHERE id = ?", (cur.lastrowid,))))
     db.commit()
     return jsonify(_landmark_or_404(db, lm_id)), 201
 
@@ -342,12 +374,17 @@ def add_image(lm_id):
 def order_images(lm_id):
     """{ids: [...]} in the wanted order (any kind); positions follow the list."""
     db = get_db()
-    _landmark_or_404(db, lm_id)
+    lm = _landmark_or_404(db, lm_id)
     ids = (request.get_json(silent=True) or {}).get("ids") or []
     if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
         abort(400, description="Lista de imágenes no válida")
+    before = [[im["id"], im["position"]] for im in lm["images"]]
     for pos, img_id in enumerate(ids):
         db.execute("UPDATE landmark_images SET position = ? WHERE id = ? AND landmark_id = ?", (pos, img_id, lm_id))
+    after = {r["id"]: r["position"] for r in db.execute(
+        "SELECT id, position FROM landmark_images WHERE landmark_id = ?", (lm_id,)).fetchall()}
+    if any(after.get(i) != p for i, p in before):
+        audit.log(db, "image_order", lm["trip_id"], lm_id, lm["name"], snapshot=before)
     db.commit()
     return jsonify(_landmark_or_404(db, lm_id))
 
@@ -356,23 +393,28 @@ def order_images(lm_id):
 def patch_image(lm_id, img_id):
     """Reclassify a picture: {kind: foto|plano}."""
     db = get_db()
-    _landmark_or_404(db, lm_id)
+    lm = _landmark_or_404(db, lm_id)
     kind = (request.get_json(silent=True) or {}).get("kind")
     if kind not in ("foto", "plano"):
         abort(400, description="Tipo no válido")
-    db.execute("UPDATE landmark_images SET kind = ? WHERE id = ? AND landmark_id = ?", (kind, img_id, lm_id))
-    db.commit()
+    im = row(db.execute("SELECT * FROM landmark_images WHERE id = ? AND landmark_id = ?", (img_id, lm_id)))
+    if im and im["kind"] != kind:
+        db.execute("UPDATE landmark_images SET kind = ? WHERE id = ?", (kind, img_id))
+        audit.log(db, "image_kind", lm["trip_id"], lm_id, lm["name"], old=im["kind"], new=kind,
+                  snapshot={"id": img_id, "title": im["title"]})
+        db.commit()
     return jsonify(_landmark_or_404(db, lm_id))
 
 
 @api.delete("/landmarks/<int:lm_id>/images/<int:img_id>")
 def delete_image(lm_id, img_id):
     db = get_db()
-    _landmark_or_404(db, lm_id)
+    lm = _landmark_or_404(db, lm_id)
     im = row(db.execute("SELECT * FROM landmark_images WHERE id = ? AND landmark_id = ?", (img_id, lm_id)))
     if im:
-        uploads.delete_files(im)
+        # uploaded files are kept on disk so the admin can undo the deletion
         db.execute("DELETE FROM landmark_images WHERE id = ?", (img_id,))
+        audit.log(db, "image_delete", lm["trip_id"], lm_id, lm["name"], old=im["title"], snapshot=im)
         db.commit()
     return jsonify(_landmark_or_404(db, lm_id))
 
@@ -381,8 +423,8 @@ def delete_image(lm_id, img_id):
 def delete_landmark(lm_id):
     db = get_db()
     lm = _landmark_or_404(db, lm_id)
-    for im in lm["images"]:
-        uploads.delete_files(im)
+    audit.log(db, "delete_landmark", lm["trip_id"], lm_id, lm["name"], old=lm["status"],
+              snapshot=audit.landmark_snapshot(db, lm_id))
     db.execute("DELETE FROM landmarks WHERE id = ?", (lm_id,))
     db.commit()
     return "", 204

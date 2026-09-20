@@ -7,3 +7,6 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/app/data
+    environment:
+      # contraseña de la página de administración (#/admin); sin esta línea vale "admin"
+      - ARCHTRIP_ADMIN_PASSWORD=${ARCHTRIP_ADMIN_PASSWORD:-admin}
