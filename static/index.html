@@ -219,6 +219,12 @@
   .dayc .foot { display: flex; gap: 8px; flex-wrap: wrap; padding: 7px 10px; }
   .dayc .foot button { font-size: 12px; padding: 3px 8px; }
   .dayc .empty { padding: 10px; }
+  .dayc li .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; margin-top: 5px; }
+  .dayc li.confirm { background: #fff8f7; }
+  .dayc li .flag { font-size: 11px; padding: 2px 6px; border: 1px solid var(--line); color: var(--muted);
+                   background: var(--bg); cursor: pointer; white-space: nowrap; }
+  .dayc li .flag.on { color: var(--warn); border-color: var(--warn); }
+  .dayc li .tag { font-size: 11px; letter-spacing: .5px; }
   .picker { border-top: 1px solid var(--line); background: var(--soft); padding: 8px 10px; }
   .picker input { width: 100%; font-family: inherit; font-size: 13px; padding: 5px 7px; border: 1px solid var(--line); }
   .picker .hits { max-height: 230px; overflow: auto; margin-top: 6px; }
@@ -913,11 +919,14 @@
   }
   function dayLabel(day, n) { return 'Día ' + n + (day.date ? ' · ' + prettyDate(day.date) : '') + (day.title ? ' · ' + day.title : ''); }
 
+  // cómo se lee cada estado dentro de un itinerario ya montado
+  const ITEM_TAG = { curado: 'fijo', posible: 'opcional', pendiente: 'sin curar', descartado: 'descartado' };
+
   function itemView(it, day, n) {
     const ro = STANDALONE;
     const time = ro ? '<span class="muted small" style="min-width:44px">' + esc(it.at_time || '') + '</span>'
       : '<input type="time" value="' + attr(it.at_time || '') + '" data-item-field="at_time" data-id="' + it.id + '" title="Hora (opcional)">';
-    let body;
+    let body, dot = '';
     if (it.kind === 'nota') {
       body = ro ? '<div class="note" style="font-style:italic">' + esc(it.text) + '</div>'
         : '<textarea class="note" rows="1" data-item-field="text" data-id="' + it.id + '" placeholder="nota">' + esc(it.text) + '</textarea>';
@@ -926,14 +935,22 @@
       if (!lm) body = '<span class="muted">hito eliminado</span>';
       else {
         const bits = [esc(lm.city), lm.year ? esc(lm.year) : null, driveText(lm)].filter(Boolean).join(' · ');
+        dot = '<i class="dot" style="background:' + COLORS[lm.status] + '" title="' + attr(ITEM_TAG[lm.status] || lm.status) + '"></i>';
         body = '<div class="arch">' + esc(lm.architect) + '</div>'
           + '<div>' + (STANDALONE ? esc(lm.name) : '<a href="#/viaje/' + state.trip.id + '/hito/' + lm.id + '">' + esc(lm.name) + '</a>') + '</div>'
-          + '<div class="meta">' + bits + '</div>';
+          + '<div class="meta">' + bits
+          + ' · <span class="tag" style="color:' + COLORS[lm.status] + '">' + (ITEM_TAG[lm.status] || '') + '</span>'
+          + (it.needs_confirm ? ' · <span class="tag" style="color:var(--warn)">pendiente de confirmar</span>' : '')
+          + '</div>';
       }
     }
-    return '<li data-item="' + it.id + '" data-day="' + day.id + '"' + (ro ? '' : ' draggable="true"') + '>'
+    const flag = ro
+      ? (it.needs_confirm ? '<span class="flag on" title="Falta permiso o confirmación">⏳</span>' : '')
+      : '<button class="flag' + (it.needs_confirm ? ' on' : '') + '" data-action="item-confirm" data-id="' + it.id + '"'
+        + ' title="' + attr(it.needs_confirm ? 'Ya está confirmado: quitar la marca' : 'Marcar como pendiente de permiso o confirmación') + '">⏳</button>';
+    return '<li data-item="' + it.id + '" data-day="' + day.id + '"' + (it.needs_confirm ? ' class="confirm"' : '') + (ro ? '' : ' draggable="true"') + '>'
       + (ro ? '' : '<span class="grip" title="Arrastra para ordenar (también entre días)">⠿</span>')
-      + time + '<div class="body">' + body + '</div>'
+      + time + dot + '<div class="body">' + body + '</div>' + flag
       + (ro ? '' : '<button class="link small" data-action="item-delete" data-id="' + it.id + '" title="Quitar de este día">✕</button>')
       + '</li>';
   }
@@ -987,8 +1004,11 @@
   function itineraryView() {
     const bar = STANDALONE ? ''
       : '<div class="itinbar"><button data-action="day-add">＋ Añadir día</button>'
-        + '<a class="btn quiet" href="/api/trips/' + state.trip.id + '/export/itinerario" download title="Un PDF día a día, listo para imprimir o mandar">⬇ Descargar itinerario (PDF)</a></div>'
-        + '<div class="muted small" style="margin:0 0 14px">Cada día lleva fecha, ciudad base y sus hitos con hora; arrastra ⠿ para ordenarlos o pasarlos a otro día.</div>';
+        + '<a class="btn quiet" href="/api/trips/' + state.trip.id + '/export/itinerario" download title="Un PDF día a día, listo para imprimir o mandar">⬇ PDF día a día</a>'
+        + '<a class="btn quiet" href="/api/trips/' + state.trip.id + '/export/itinerario?fotos=1" download title="El mismo itinerario con la foto de cada hito: tarda un poco más porque las descarga">⬇ PDF con fotos</a></div>'
+        + '<div class="muted small" style="margin:0 0 14px">Cada día lleva fecha, ciudad base y sus hitos con hora; arrastra ⠿ para ordenarlos o pasarlos a otro día. '
+        + 'El punto de color dice cómo está curado cada hito (<span style="color:' + COLORS.curado + '">fijo</span>, '
+        + '<span style="color:' + COLORS.posible + '">opcional</span>…) y ⏳ lo marca como pendiente de permiso o confirmación.</div>';
     if (!state.days.length) {
       return '<div class="itin">' + bar + '<div class="empty">'
         + (STANDALONE ? 'Este viaje no tiene itinerario.' : 'Todavía no hay días. Pulsa <b>Añadir día</b>: el primero toma la fecha de hoy y los siguientes van encadenando el día siguiente.')
@@ -1657,6 +1677,11 @@
       }, 0);
     }),
     'item-delete': (el) => dayDo(async () => { applyDay(await store.deleteItem(Number(el.dataset.id))); }),
+    'item-confirm': (el) => dayDo(async () => {
+      const id = Number(el.dataset.id);
+      const it = state.days.reduce((f, d) => f || (d.items || []).find((x) => x.id === id), null);
+      applyDay(await store.patchItem(id, { needs_confirm: it && it.needs_confirm ? 0 : 1 }));
+    }),
     'sort-by-time': (el) => dayDo(async () => {
       const day = state.days.find((d) => d.id === Number(el.dataset.id));
       const ids = (day.items || []).slice().sort((a, b) => (a.at_time || '99:99').localeCompare(b.at_time || '99:99')).map((it) => it.id);

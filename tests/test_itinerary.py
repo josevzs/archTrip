@@ -139,9 +139,10 @@ def test_itinerary_rows_are_what_gets_printed(client, fake_geo, app):
         payload = _trip_payload(get_db(), row(get_db().execute("SELECT * FROM trips WHERE id = ?", (tid,))))
     rows = export.itinerary_rows(payload)
     assert rows[0]["head"] == "Día 1 · lunes 12 de abril de 2027"
-    time, line, meta = rows[0]["items"][0]
-    assert (time, line) == ("09:30", "REM KOOLHAAS — Casa da Música")
-    assert "Oporto" in meta and "2005" in meta and "min en coche desde Oporto" in meta
+    r = rows[0]["items"][0]
+    assert (r["time"], r["line"]) == ("09:30", "REM KOOLHAAS — Casa da Música")
+    assert "Oporto" in r["meta"] and "2005" in r["meta"] and "min en coche desde Oporto" in r["meta"]
+    assert r["status"] == "pendiente" and r["confirm"] is False
 
 
 def test_itinerary_travels_in_the_standalone_copy(client):
@@ -217,3 +218,66 @@ def test_trip_delete_and_restore_keeps_the_itinerary(client):
     client.post(f"/api/admin/changes/{ch['id']}/revert")
     days = trip(client, tid)["days"]
     assert len(days) == 1 and [i["at_time"] for i in days[0]["items"]] == ["09:30"]
+
+
+def test_status_and_pending_confirmation_show_up_in_the_pdf(client, fake_geo):
+    tid = seed(client)
+    day = client.post(f"/api/trips/{tid}/days", json={"date": "2027-04-12"}).get_json()
+    fijo, opcional, _ = trip(client, tid)["landmarks"]
+    client.patch(f"/api/landmarks/{fijo['id']}", json={"status": "curado"})
+    client.patch(f"/api/landmarks/{opcional['id']}", json={"status": "posible"})
+    it = client.post(f"/api/days/{day['id']}/items", json={"landmark_id": fijo["id"], "at_time": "09:30"}).get_json()["items"][0]
+    client.post(f"/api/days/{day['id']}/items", json={"landmark_id": opcional["id"]})
+
+    r = client.patch(f"/api/items/{it['id']}", json={"needs_confirm": 1})
+    assert r.get_json()["items"][0]["needs_confirm"] == 1
+    assert trip(client, tid)["days"][0]["items"][0]["needs_confirm"] == 1
+
+    text = pdf_text(client.get(f"/api/trips/{tid}/export/itinerario").data)
+    assert "FIJO" in text and "OPCIONAL" in text and "PENDIENTE DE CONFIRMAR" in text
+    assert "■ fijo · ■ opcional · ■ pendiente de confirmar" in text    # la leyenda de arriba
+
+    # la marca se quita igual que se pone, y queda en el diario
+    client.patch(f"/api/items/{it['id']}", json={"needs_confirm": 0})
+    assert "PENDIENTE DE CONFIRMAR" not in pdf_text(client.get(f"/api/trips/{tid}/export/itinerario").data)
+    client.post("/api/admin/login", json={"password": "admin"})
+    sid = client.get("/api/admin/sessions").get_json()[0]["id"]
+    marks = [c for c in client.get(f"/api/admin/sessions/{sid}/changes").get_json() if c["field"] == "needs_confirm"]
+    assert [(c["old_value"], c["new_value"]) for c in marks] == [("0", "1"), ("1", "0")]
+    assert client.post(f"/api/admin/changes/{marks[1]['id']}/revert").get_json()["result"] == "revertido"
+    assert trip(client, tid)["days"][0]["items"][0]["needs_confirm"] == 1
+
+
+def test_gallery_pdf_carries_the_photos(client, fake_geo, monkeypatch):
+    import io as _io
+    from PIL import Image as PILImage
+    from archtrip import export
+
+    buf = _io.BytesIO()
+    PILImage.new("RGB", (240, 180), (90, 90, 90)).save(buf, "JPEG")
+    shot = buf.getvalue()
+    asked = []
+
+    def fake_photo(url, cache):
+        asked.append(url)
+        return shot if url and "rota" not in url else None       # una falla a propósito
+
+    monkeypatch.setattr(export, "photo_bytes", fake_photo)
+
+    tid = seed(client)
+    day = client.post(f"/api/trips/{tid}/days", json={"date": "2027-04-12"}).get_json()
+    a, b, _ = trip(client, tid)["landmarks"]
+    client.patch(f"/api/landmarks/{a['id']}", json={"url_image1": "https://example.com/foto.jpg"})
+    client.patch(f"/api/landmarks/{b['id']}", json={"url_image1": "https://example.com/rota.jpg"})
+    client.post(f"/api/days/{day['id']}/items", json={"landmark_id": a["id"], "at_time": "09:30"})
+    client.post(f"/api/days/{day['id']}/items", json={"landmark_id": b["id"]})
+
+    plain = client.get(f"/api/trips/{tid}/export/itinerario")
+    gallery = client.get(f"/api/trips/{tid}/export/itinerario?fotos=1")
+    assert gallery.status_code == 200 and gallery.mimetype == "application/pdf"
+    assert "itinerario-fotos-portugal-2027.pdf" in gallery.headers["Content-Disposition"]
+    assert len(gallery.data) > len(plain.data) + 1000          # la foto va dentro
+    assert "https://example.com/foto.jpg" in asked
+    # la que falla no rompe el documento: sigue teniendo el texto de los dos hitos
+    text = pdf_text(gallery.data)
+    assert "Casa da Música" in text and "Museo de Serralves" in text

@@ -113,6 +113,23 @@ try {
     && (await evaluate(`document.querySelector('${D1} input.title').value`)) === 'Oporto a pie'
     && (await evaluate(`document.querySelector('${D1} input.daynotes').value`)) === 'recoger las llaves del piso');
 
+  // ---- estado del hito y "pendiente de confirmar" en cada línea
+  check('cada hito enseña cómo está curado', (await evaluate(text(`${D1} li .meta`))).includes('fijo')
+    || (await evaluate(text(`${D1} li .meta`))).includes('opcional') || (await evaluate(text(`${D1} li .meta`))).includes('sin curar'),
+    await evaluate(text(`${D1} li .meta`)));
+  check('con su punto de color', await evaluate(count(`${D1} li .dot`)) >= 2);
+  await evaluate(`document.querySelector('${D1} li[data-item] [data-action="item-confirm"]').click()`); await sleep(1300);
+  check('se puede marcar como pendiente de confirmación', await evaluate(count(`${D1} li.confirm`)) === 1
+    && (await evaluate(text(`${D1} li.confirm`))).includes('pendiente de confirmar'), await evaluate(count(`${D1} li.confirm`)));
+  const confirmId = await evaluate(`document.querySelector('${D1} li.confirm').dataset.item`);
+  check('y queda guardado', (await (await fetch(`${BASE}/api/trips/${TRIP}`)).json()).days
+    .flatMap((d) => d.items).find((it) => String(it.id) === confirmId).needs_confirm === 1);
+  await goto(`${BASE}/#/viaje/${TRIP}`, 2500);
+  await evaluate(`document.querySelector('[data-action="view"][data-view="itinerario"]').click()`); await sleep(700);
+  check('la marca sigue ahí al recargar', await evaluate(count('.dayc li.confirm')) === 1);
+  await evaluate(`document.querySelector('.dayc li.confirm [data-action="item-confirm"]').click()`); await sleep(1300);
+  check('y se quita igual', await evaluate(count('.dayc li.confirm')) === 0);
+
   // ---- arrastrar: reordenar dentro del día y mover a otro día
   const drag = (fromSel, toSel) => evaluate(`(() => {
       const dt = new DataTransfer();
@@ -220,7 +237,11 @@ try {
   const pdf = await (await fetch(`${BASE}/api/trips/${TRIP}/export/itinerario`)).arrayBuffer();
   const head = new TextDecoder().decode(new Uint8Array(pdf).slice(0, 5));
   check('el itinerario se descarga como PDF', head === '%PDF-' && pdf.byteLength > 2000, head + ' ' + pdf.byteLength);
-  check('y el botón dice que es un PDF', (await evaluate(`(() => { document.querySelector('[data-action="view"][data-view="itinerario"]').click(); return document.body.textContent; })()`)).includes('Descargar itinerario (PDF)'));
+  const gallery = await (await fetch(`${BASE}/api/trips/${TRIP}/export/itinerario?fotos=1`)).arrayBuffer();
+  check('y hay una segunda descarga con las fotos', gallery.byteLength > pdf.byteLength + 5000,
+    pdf.byteLength + ' -> ' + gallery.byteLength);
+  check('los dos botones están en la vista', (await evaluate(`(() => { document.querySelector('[data-action="view"][data-view="itinerario"]').click(); return document.body.textContent; })()`)).includes('PDF día a día')
+    && (await evaluate('document.body.textContent')).includes('PDF con fotos'));
 
   // ---- borrar un día
   await goto(`${BASE}/#/viaje/${TRIP}`, 2500);

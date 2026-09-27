@@ -11,15 +11,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import reportlab
+import requests
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.utils import ImageReader
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
-from reportlab.platypus import (HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer,
-                                Table, TableStyle)
+from reportlab.platypus import (HRFlowable, Image, KeepTogether, Paragraph, SimpleDocTemplate,
+                                Spacer, Table, TableStyle)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 DATA_MARKER = "<!--ARCHTRIP_DATA-->"
@@ -301,9 +303,15 @@ def _latin1(text):
     return out.encode("latin-1", "replace").decode("latin-1")
 
 
+# Cómo se lee cada estado dentro de un itinerario ya montado
+STATUS_TAG = {"curado": ("FIJO", "#2e7d4f"), "posible": ("OPCIONAL", "#b8860b"),
+              "pendiente": ("SIN CURAR", "#666666"), "descartado": ("DESCARTADO", "#b3261e")}
+CONFIRM_TAG = ("PENDIENTE DE CONFIRMAR", "#b3261e")
+
+
 def itinerary_rows(payload):
-    """El itinerario como texto, listo para pintar (y fácil de comprobar en los tests):
-    [{'head':…, 'base':…, 'notes':…, 'items':[(hora, línea, detalle)]}]"""
+    """El itinerario listo para pintar (y fácil de comprobar en los tests). Cada elemento:
+    {'time','line','meta','status','confirm','photo'}"""
     days = payload.get("days") or []
     landmarks = {lm["id"]: lm for lm in payload["landmarks"]}
     stops = {s["id"]: s for s in payload["stops"]}
@@ -314,13 +322,14 @@ def itinerary_rows(payload):
             head += f" · {day['title']}"
         rows = []
         for it in day.get("items") or []:
-            time = it.get("at_time") or ""
+            row = {"time": it.get("at_time") or "", "meta": "", "status": None,
+                   "confirm": bool(it.get("needs_confirm")), "photo": None}
             if it["kind"] == "nota":
-                rows.append((time, it.get("text") or "", ""))
+                rows.append(dict(row, line=it.get("text") or ""))
                 continue
             lm = landmarks.get(it.get("landmark_id"))
             if lm is None:
-                rows.append((time, "hito eliminado", ""))
+                rows.append(dict(row, line="hito eliminado"))
                 continue
             bits = [lm["city"]]
             if lm.get("year"):
@@ -333,11 +342,45 @@ def itinerary_rows(payload):
                 bits.append(f"{approx}{round(minutes)} min en coche desde {stop['city']}")
             if lm.get("notes"):
                 bits.append(lm["notes"])
-            rows.append((time, f"{lm['architect'].upper()} — {lm['name']}", " · ".join(bits)))
+            photos = [im for im in lm.get("images", []) if im.get("kind") == "foto"]
+            rows.append(dict(row, line=f"{lm['architect'].upper()} — {lm['name']}", meta=" · ".join(bits),
+                             status=lm.get("status"),
+                             photo=(photos[0].get("thumb") if photos else lm.get("url_image1"))))
         out.append({"head": head,
                     "base": day.get("stop_city") or (stops.get(day.get("stop_id")) or {}).get("city") or "",
                     "notes": day.get("notes") or "", "items": rows})
     return out
+
+
+def photo_bytes(url, cache):
+    """La miniatura de un hito: de disco si la subió el profesor, si no de internet.
+    Devuelve None y sigue adelante si falla: un itinerario sin una foto se imprime igual."""
+    if not url or url in cache:
+        return cache.get(url)
+    data = None
+    try:
+        from . import uploads
+        data = uploads.read_file(url)
+        if data is None and url.startswith(("http://", "https://")):
+            from .images import USER_AGENT
+            resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=15)
+            data = resp.content if resp.status_code == 200 and resp.content[:2] not in (b"<!", b"<h") else None
+    except Exception:
+        data = None
+    cache[url] = data
+    return data
+
+
+def _photo_flowable(url, cache, width, height):
+    raw = photo_bytes(url, cache)
+    if not raw:
+        return None
+    try:
+        w, h = ImageReader(io.BytesIO(raw)).getSize()      # solo para medirla
+        scale = min(width / w, height / h)
+        return Image(io.BytesIO(raw), width=w * scale, height=h * scale)
+    except Exception:
+        return None
 
 
 class _Numbered(canvas.Canvas):
@@ -366,8 +409,9 @@ class _Numbered(canvas.Canvas):
         self.drawRightString(A4[0] - PAGE_MARGIN, 12 * mm, f"página {self._pageNumber} de {total}")
 
 
-def itinerary_pdf(payload):
-    """-> (pdf_bytes, filename). Día a día, para imprimir o mandar por correo."""
+def itinerary_pdf(payload, gallery=False):
+    """-> (pdf_bytes, filename). Día a día, para imprimir o mandar por correo.
+    `gallery=True` añade la foto de cada hito (se descargan al vuelo, las que fallen se omiten)."""
     trip = payload["trip"]
     font, unicode_ok = _mono_font()
     clean = (lambda t: t) if unicode_ok else _latin1
@@ -381,16 +425,25 @@ def itinerary_pdf(payload):
         "time": ParagraphStyle("h", fontName=font, fontSize=9, leading=12, textColor=colors.HexColor("#666666")),
         "item": ParagraphStyle("i", fontName=font, fontSize=9, leading=12),
         "meta": ParagraphStyle("m", fontName=font, fontSize=7.5, leading=10, textColor=colors.HexColor("#666666")),
+        "tag": ParagraphStyle("g", fontName=font, fontSize=7.5, leading=10),
         "empty": ParagraphStyle("e", fontName=font, fontSize=8.5, leading=11, textColor=colors.HexColor("#999999")),
     }
     rows = itinerary_rows(payload)
+    photos = {}                     # cada foto se baja una sola vez por documento
     dated = [d["date"] for d in (payload.get("days") or []) if d.get("date")]
     span = ""
     if dated:
         span = pretty_date(min(dated)) + (f" — {pretty_date(max(dated))}" if min(dated) != max(dated) else "")
 
+    seen = {r["status"] for day in rows for r in day["items"] if r["status"]}
+    anyconfirm = any(r["confirm"] for day in rows for r in day["items"])
+    legend = [f'<font color="{STATUS_TAG[st][1]}">■ {STATUS_TAG[st][0].lower()}</font>'
+              for st in ("curado", "posible", "pendiente", "descartado") if st in seen]
+    if anyconfirm:
+        legend.append(f'<font color="{CONFIRM_TAG[1]}">■ {CONFIRM_TAG[0].lower()}: falta permiso o reserva</font>')
     story = [Paragraph(_esc(clean(trip["name"])).upper(), styles["title"]),
-             Paragraph(_esc(clean("Itinerario" + (f" · {span}" if span else "") + f" · {len(rows)} días")), styles["sub"]),
+             Paragraph(_esc(clean("Itinerario" + (f" · {span}" if span else "") + f" · {len(rows)} días"))
+                       + (("<br/>" + " · ".join(legend)) if legend else ""), styles["sub"]),
              Spacer(1, 6 * mm)]
     if not rows:
         story.append(Paragraph(_esc(clean("Este viaje todavía no tiene días: créalos en la vista Itinerario.")), styles["empty"]))
@@ -403,12 +456,28 @@ def itinerary_pdf(payload):
             block.append(Paragraph(_esc(clean(day["notes"])), styles["note"]))
         if day["items"]:
             data = []
-            for time, line, meta in day["items"]:
-                cell = [Paragraph(_esc(clean(line)), styles["item"])]
-                if meta:
-                    cell.append(Paragraph(_esc(clean(meta)), styles["meta"]))
-                data.append([Paragraph(_esc(clean(time)), styles["time"]), cell])
-            table = Table(data, colWidths=[16 * mm, None], hAlign="LEFT")
+            for r in day["items"]:
+                tags = []
+                if r["status"] and r["status"] != "curado":
+                    tags.append(STATUS_TAG.get(r["status"], (r["status"], "#666666")))
+                elif r["status"] == "curado":
+                    tags.append(STATUS_TAG["curado"])
+                if r["confirm"]:
+                    tags.append(CONFIRM_TAG)
+                marks = " · ".join(f'<font color="{col}">{_esc(clean(txt))}</font>' for txt, col in tags)
+                cell = [Paragraph(_esc(clean(r["line"])), styles["item"])]
+                if r["meta"]:
+                    cell.append(Paragraph(_esc(clean(r["meta"])), styles["meta"]))
+                if marks:
+                    cell.append(Paragraph(marks, styles["tag"]))
+                row = [Paragraph(_esc(clean(r["time"])), styles["time"])]
+                if gallery:
+                    row.append(_photo_flowable(r["photo"], photos, 34 * mm, 26 * mm) or
+                               Paragraph("", styles["meta"]))
+                row.append(cell)
+                data.append(row)
+            widths = [16 * mm, 36 * mm, None] if gallery else [16 * mm, None]
+            table = Table(data, colWidths=widths, hAlign="LEFT")
             table.setStyle(TableStyle([
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
@@ -420,8 +489,9 @@ def itinerary_pdf(payload):
             block.append(Paragraph(_esc(clean("sin nada planificado todavía")), styles["empty"]))
         block.append(Spacer(1, 5 * mm))
         # el día entero junto si cabe; si no, que parta por donde pueda
-        story.append(KeepTogether(block) if len(day["items"]) <= 8 else block[0])
-        if len(day["items"]) > 8:
+        limit = 4 if gallery else 8         # con fotos cada línea ocupa mucho más
+        story.append(KeepTogether(block) if len(day["items"]) <= limit else block[0])
+        if len(day["items"]) > limit:
             story.extend(block[1:])
 
     buf = io.BytesIO()
@@ -431,7 +501,8 @@ def itinerary_pdf(payload):
     _Numbered._archtrip_font = font
     _Numbered._archtrip_note = clean(f"Generado con el sistema archTrip el {today_long()}")
     doc.build(story, canvasmaker=_Numbered)
-    return buf.getvalue(), f"itinerario-{slugify(trip['name'])}.pdf"
+    suffix = "-fotos" if gallery else ""
+    return buf.getvalue(), f"itinerario{suffix}-{slugify(trip['name'])}.pdf"
 
 
 def _itinerary_note(payload):
@@ -450,13 +521,16 @@ def _itinerary_note(payload):
             out += [day["notes"], ""]
         for it in day.get("items") or []:
             time = f"**{it['at_time']}** " if it.get("at_time") else ""
+            mark = " ⚠️ pendiente de confirmar" if it.get("needs_confirm") else ""
             if it["kind"] == "nota":
-                out.append(f"- {time}*{it.get('text') or ''}*")
+                out.append(f"- {time}*{it.get('text') or ''}*{mark}")
             else:
                 lm = landmarks.get(it.get("landmark_id"))
                 if lm:
                     note = safe_filename(f"{lm['name']} — {lm['architect']}")
-                    out.append(f"- {time}[[{note}|{lm['name']}]] — {lm['architect']}, {lm['city']}")
+                    tag = STATUS_TAG.get(lm.get("status"), ("", ""))[0].lower()
+                    out.append(f"- {time}[[{note}|{lm['name']}]] — {lm['architect']}, {lm['city']}"
+                               + (f" ({tag})" if tag else "") + mark)
         out.append("")
     if not days:
         out.append("*Sin días planificados.*")

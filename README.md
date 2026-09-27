@@ -108,13 +108,19 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
      faltan quedan **huecos**, con su leyenda: se ve de un golpe lo que queda por colocar.
    - Desde la **ficha** de cualquier hito hay además un desplegable «añadir a un día…», y dice
      en qué días está ya metido.
+   - Cada línea enseña **cómo está curado el hito** —punto de color y etiqueta: *fijo* (verde,
+     curado), *opcional* (ámbar, posible), *sin curar*— y lleva un botón **⏳** para marcarla como
+     **pendiente de permiso o confirmación** (visitas con reserva, permisos de acceso…). La línea
+     marcada se resalta y lo dice en claro, también en los PDF.
    - Quitar una línea (✕) no borra el hito del viaje, solo lo saca de ese día; borrar un día
      tampoco borra sus hitos.
 6. **Exportar**:
-   - **Itinerario (PDF)**: un PDF día a día listo para imprimir o mandar a los alumnos, con las
-     horas, el arquitecto y el edificio, ciudad, año, tiempo en coche desde la base y las notas.
-     No lleva la barra de créditos de la aplicación: solo un pie discreto de «generado con el
-     sistema archTrip el …» y la paginación.
+   - **Itinerario (PDF)**, en dos versiones: **día a día** (compacto, para imprimir o mandar a
+     los alumnos) y **con fotos** (el mismo, con la foto de cada hito al lado; tarda algo más
+     porque las descarga). Los dos llevan las horas, el arquitecto y el edificio, ciudad, año,
+     tiempo en coche desde la base, las notas, la etiqueta de curado (*fijo* / *opcional*) y el
+     aviso de *pendiente de confirmar*, con su leyenda arriba. No llevan la barra de créditos de
+     la aplicación: solo un pie discreto de «generado con el sistema archTrip el …» y la paginación.
    - **HTML**: un único archivo `viaje-<nombre>.html` que se abre con doble clic en cualquier
      ordenador, sin servidor. Guarda los cambios en el navegador y con **Guardar copia**
      genera un nuevo HTML con el estado actual para compartir.

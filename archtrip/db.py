@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS day_items (
     at_time     TEXT,                               -- HH:MM, opcional
     kind        TEXT NOT NULL,                      -- hito | nota
     landmark_id INTEGER REFERENCES landmarks(id) ON DELETE CASCADE,
-    text        TEXT
+    text        TEXT,
+    needs_confirm INTEGER NOT NULL DEFAULT 0         -- pendiente de permiso o confirmación
 );
 CREATE INDEX IF NOT EXISTS idx_day_items ON day_items (day_id, position);
 
@@ -127,6 +128,7 @@ MIGRATIONS = [
     ("landmarks", "wikipedia_url", "TEXT"),
     ("landmarks", "images_status", "TEXT NOT NULL DEFAULT 'pendiente'"),
     ("landmarks", "links_status", "TEXT NOT NULL DEFAULT 'pendiente'"),
+    ("day_items", "needs_confirm", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 

@@ -602,6 +602,12 @@ def patch_item(item_id):
             db.execute("UPDATE day_items SET text = ? WHERE id = ?", (value, item_id))
             audit.log(db, "item_edit", item["trip_id"], None, label, field="text",
                       old=item["text"], new=value, snapshot={"item_id": item_id})
+    if "needs_confirm" in body:
+        value = 1 if body["needs_confirm"] else 0
+        if value != item["needs_confirm"]:
+            db.execute("UPDATE day_items SET needs_confirm = ? WHERE id = ?", (value, item_id))
+            audit.log(db, "item_edit", item["trip_id"], item["landmark_id"], label, field="needs_confirm",
+                      old=item["needs_confirm"], new=value, snapshot={"item_id": item_id})
     if "day_id" in body and body["day_id"] != item["day_id"]:
         target = _day_or_404(db, body["day_id"])
         if target["trip_id"] != item["trip_id"]:
@@ -674,10 +680,11 @@ def export_html(trip_id):
 
 @api.get("/trips/<int:trip_id>/export/itinerario")
 def export_itinerary(trip_id):
-    """Day-by-day itinerary as a PDF, ready to print or to send to the students."""
+    """Day-by-day itinerary as a PDF, ready to print or to send to the students.
+    `?fotos=1` adds each landmark's picture (slower: the images are fetched on the fly)."""
     db = get_db()
     trip = _trip_or_404(db, trip_id)
-    data, filename = export.itinerary_pdf(_trip_payload(db, trip))
+    data, filename = export.itinerary_pdf(_trip_payload(db, trip), gallery="fotos" in request.args)
     return send_file(io.BytesIO(data), mimetype="application/pdf",
                      as_attachment=True, download_name=filename)
 

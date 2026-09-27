@@ -203,8 +203,9 @@ def _insert_day(db, snap):
 
 
 def _insert_item(db, snap):
-    cols = ["day_id", "position", "at_time", "kind", "landmark_id", "text"]
+    cols = ["day_id", "position", "at_time", "kind", "landmark_id", "text", "needs_confirm"]
     vals = [snap.get(c) for c in cols]
+    vals[-1] = snap.get("needs_confirm") or 0       # las copias viejas no traían la marca
     if snap.get("id") and _free_id(db, "day_items", snap["id"]):
         db.execute(f"INSERT INTO day_items (id, {', '.join(cols)}) VALUES (?, {', '.join('?' * len(cols))})", [snap["id"]] + vals)
     else:
@@ -363,9 +364,10 @@ def revert_change(db, c):
         it = row(db.execute("SELECT * FROM day_items WHERE id = ?", (snap["item_id"],)))
         if not it:
             return "el elemento ya no existe"
-        db.execute(f"UPDATE day_items SET {c['field']} = ? WHERE id = ?", (c["old_value"], it["id"]))
+        back = int(c["old_value"]) if c["field"] == "needs_confirm" else c["old_value"]
+        db.execute(f"UPDATE day_items SET {c['field']} = ? WHERE id = ?", (back, it["id"]))
         audit.log(db, "item_edit", trip_id, lm_id, c["landmark_name"], field=c["field"],
-                  old=c["new_value"], new=c["old_value"], snapshot=snap, revert_of=c["id"])
+                  old=c["new_value"], new=back, snapshot=snap, revert_of=c["id"])
     elif action == "item_move":
         it = row(db.execute("SELECT * FROM day_items WHERE id = ?", (snap["item_id"],)))
         if not it:
