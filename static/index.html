@@ -180,6 +180,38 @@
   #credits a { color: var(--muted); display: inline-flex; align-items: center; text-decoration: none; }
   #credits a:hover { color: var(--ink); }
   .banner { background: var(--soft); border: 1px dashed var(--line); padding: 8px 12px; margin-bottom: 12px; }
+  /* itinerario: días con fecha, hitos ordenados y notas sueltas */
+  .controls.itin #tabs, .controls.itin #search { display: none; }
+  .itin .itinbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+  .dayc { border: 1px solid var(--line); border-left: 3px solid var(--ink); margin-bottom: 14px; }
+  .dayc > .head { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 8px 10px; background: var(--soft); }
+  .dayc .num { text-transform: uppercase; letter-spacing: 1px; font-size: 12px; color: var(--muted); min-width: 52px; }
+  .dayc .head input, .dayc .head select { font-family: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .dayc .head input.title { flex: 1 1 160px; min-width: 120px; }
+  .dayc .head .when { font-size: 12px; color: var(--muted); }
+  .dayc .daynotes { width: 100%; font-family: inherit; font-size: 13px; padding: 5px 8px; border: 0; border-bottom: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .dayc ul { list-style: none; margin: 0; padding: 0; }
+  .dayc li { display: flex; gap: 8px; align-items: flex-start; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+  .dayc li.over { border-top: 2px solid var(--ink); }
+  .dayc li.dragging { opacity: .4; }
+  .dayc li .grip { cursor: grab; color: var(--muted); user-select: none; padding-top: 2px; }
+  .dayc li input[type=time] { width: 92px; font-family: inherit; font-size: 13px; padding: 3px 4px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .dayc li .body { flex: 1 1 auto; min-width: 0; }
+  .dayc li .body .arch { text-transform: uppercase; font-weight: bold; font-size: 13px; }
+  .dayc li .body .meta { font-size: 12px; color: var(--muted); }
+  .dayc li textarea.note { width: 100%; font-family: inherit; font-size: 13px; font-style: italic; padding: 4px 6px;
+                           border: 1px solid transparent; background: var(--bg); color: var(--ink); resize: vertical; min-height: 26px; }
+  .dayc li textarea.note:hover, .dayc li textarea.note:focus { border-color: var(--line); }
+  .dayc .foot { display: flex; gap: 8px; flex-wrap: wrap; padding: 7px 10px; }
+  .dayc .foot button { font-size: 12px; padding: 3px 8px; }
+  .dayc .empty { padding: 10px; }
+  .picker { border-top: 1px solid var(--line); background: var(--soft); padding: 8px 10px; }
+  .picker input { width: 100%; font-family: inherit; font-size: 13px; padding: 5px 7px; border: 1px solid var(--line); }
+  .picker .hits { max-height: 230px; overflow: auto; margin-top: 6px; }
+  .picker .hit { display: flex; gap: 8px; align-items: baseline; padding: 4px 2px; cursor: pointer; font-size: 13px; }
+  .picker .hit:hover { background: var(--bg); }
+  .picker .hit .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+  .picker .hit .in { color: var(--muted); font-size: 11px; }
   /* hidden admin page (#/admin) */
   .adm table { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 8px; }
   .adm th, .adm td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -229,7 +261,7 @@
 
   const FILTERS = ['todos', 'pendiente', 'curado', 'posible', 'descartado'];
   const FILTER_LABEL = { todos: 'Todos', pendiente: 'Pendientes', curado: 'Curados', posible: 'Posibles', descartado: 'Descartados' };
-  const VIEWS = { fotos: 'Fotos', arquitectos: 'Arquitectos', mapa: 'Mapa', lista: 'Lista' };
+  const VIEWS = { fotos: 'Fotos', arquitectos: 'Arquitectos', mapa: 'Mapa', lista: 'Lista', itinerario: 'Itinerario' };
   const COLORS = { pendiente: '#111', curado: '#2e7d4f', posible: '#b8860b', descartado: '#999' };
   const LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
   const LEAFLET_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
@@ -262,10 +294,10 @@
     savedSkip = localStorage.getItem('archtrip:skipRejected') || '1';
   } catch (e) { /* no storage */ }
   const state = {
-    screen: 'trips', trips: [], trip: null, stops: [], landmarks: [], pending: null,
+    screen: 'trips', trips: [], trip: null, stops: [], landmarks: [], days: [], pending: null,
     filter: 'todos', query: '', editing: null, msg: null, view: VIEWS[savedView] ? savedView : 'fotos',
     newMode: null, promptText: null,
-    detail: null, detailImg: 0, addingImage: false,
+    detail: null, detailImg: 0, addingImage: false, picker: null,
     hideRejected: savedHide === '1', skipRejected: savedSkip === '1',
     enrich: { running: false, remaining: 0, error: null },
     admin: { authed: null, sessions: [], open: null, changes: [], query: '', history: null, backups: [], busy: false, note: null },
@@ -380,6 +412,13 @@
     setImageKind: (id, imgId, kind) => call('PATCH', '/api/landmarks/' + id + '/images/' + imgId, { kind }),
     refreshImages: (id) => call('POST', '/api/landmarks/' + id + '/images/refresh'),
     enrichNext: (tripId) => call('POST', '/api/trips/' + tripId + '/enrich/next'),
+    createDay: (tripId, body) => call('POST', '/api/trips/' + tripId + '/days', body || {}),
+    patchDay: (id, fields) => call('PATCH', '/api/days/' + id, fields),
+    deleteDay: (id) => call('DELETE', '/api/days/' + id),
+    addItem: (dayId, body) => call('POST', '/api/days/' + dayId + '/items', body),
+    patchItem: (id, fields) => call('PATCH', '/api/items/' + id, fields),
+    deleteItem: (id) => call('DELETE', '/api/items/' + id),
+    orderItems: (dayId, ids) => call('PUT', '/api/days/' + dayId + '/items/order', { ids }),
   };
 
   // Standalone copy: data embedded in the file, edits overlaid from localStorage.
@@ -402,7 +441,7 @@
         });
     }
     return {
-      getTrip: async () => ({ trip: data.trip, stops: data.stops || [], landmarks: merged(),
+      getTrip: async () => ({ trip: data.trip, stops: data.stops || [], landmarks: merged(), days: data.days || [],
                               pending: { total: 0, has_route: (data.stops || []).some((s) => s.lat != null) } }),
       patchLandmark: async (id, fields) => {
         const clean = {};
@@ -523,7 +562,8 @@
         + '<div class="group"><button data-action="pick-file" data-kind="route">⬆ Subir ruta</button>'
         + '<button data-action="pick-file" data-kind="landmarks">⬆ Subir hitos</button>'
         + '<input type="file" accept=".xlsx" data-upload="route" hidden><input type="file" accept=".xlsx" data-upload="landmarks" hidden></div>'
-        + '<div class="group"><a class="btn quiet" href="/api/trips/' + t.id + '/export/html" download>Exportar HTML</a>'
+        + '<div class="group"><a class="btn quiet" href="/api/trips/' + t.id + '/export/itinerario?download=1" download>⬇ Itinerario</a>'
+        + '<a class="btn quiet" href="/api/trips/' + t.id + '/export/html" download>Exportar HTML</a>'
         + '<a class="btn quiet" href="/api/trips/' + t.id + '/export/obsidian" download>Exportar Obsidian</a></div>'
         + '</div>';
     }
@@ -739,7 +779,128 @@
     return null;
   }
 
+  // ---- itinerario: días con fecha, hitos ordenados con hora y notas sueltas
+  const WEEKDAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+  function prettyDate(value) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+    if (!m) return '';
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (isNaN(d)) return '';
+    return WEEKDAYS[d.getDay()] + ' ' + d.getDate() + ' de ' + MONTHS[d.getMonth()];
+  }
+
+  function sortDays() {
+    state.days.sort((a, b) => {
+      const da = a.date || '', db2 = b.date || '';
+      if (!!da !== !!db2) return da ? -1 : 1;          // los días sin fecha, al final
+      if (da !== db2) return da < db2 ? -1 : 1;
+      return (a.position - b.position) || (a.id - b.id);
+    });
+  }
+
+  function applyDayAnd(day) { applyDay(day); return day; }
+
+  function applyDay(day) {
+    const i = state.days.findIndex((d) => d.id === day.id);
+    if (i < 0) state.days.push(day); else state.days[i] = day;
+    sortDays();
+  }
+
+  // día(s) en los que ya está metido un hito, para avisar al añadirlo otra vez
+  function daysOfLandmark(lmId) {
+    return state.days.filter((d) => (d.items || []).some((it) => it.kind === 'hito' && it.landmark_id === lmId));
+  }
+  function dayLabel(day, n) { return 'Día ' + n + (day.date ? ' · ' + prettyDate(day.date) : '') + (day.title ? ' · ' + day.title : ''); }
+
+  function itemView(it, day, n) {
+    const ro = STANDALONE;
+    const time = ro ? '<span class="muted small" style="min-width:44px">' + esc(it.at_time || '') + '</span>'
+      : '<input type="time" value="' + attr(it.at_time || '') + '" data-item-field="at_time" data-id="' + it.id + '" title="Hora (opcional)">';
+    let body;
+    if (it.kind === 'nota') {
+      body = ro ? '<div class="note" style="font-style:italic">' + esc(it.text) + '</div>'
+        : '<textarea class="note" rows="1" data-item-field="text" data-id="' + it.id + '" placeholder="nota">' + esc(it.text) + '</textarea>';
+    } else {
+      const lm = state.landmarks.find((x) => x.id === it.landmark_id);
+      if (!lm) body = '<span class="muted">hito eliminado</span>';
+      else {
+        const bits = [esc(lm.city), lm.year ? esc(lm.year) : null, driveText(lm)].filter(Boolean).join(' · ');
+        body = '<div class="arch">' + esc(lm.architect) + '</div>'
+          + '<div>' + (STANDALONE ? esc(lm.name) : '<a href="#/viaje/' + state.trip.id + '/hito/' + lm.id + '">' + esc(lm.name) + '</a>') + '</div>'
+          + '<div class="meta">' + bits + '</div>';
+      }
+    }
+    return '<li data-item="' + it.id + '" data-day="' + day.id + '"' + (ro ? '' : ' draggable="true"') + '>'
+      + (ro ? '' : '<span class="grip" title="Arrastra para ordenar (también entre días)">⠿</span>')
+      + time + '<div class="body">' + body + '</div>'
+      + (ro ? '' : '<button class="link small" data-action="item-delete" data-id="' + it.id + '" title="Quitar de este día">✕</button>')
+      + '</li>';
+  }
+
+  function pickerView(day) {
+    const q = (state.picker.query || '').trim().toLowerCase();
+    const scored = state.landmarks
+      .filter((lm) => (q ? (lm.name + ' ' + lm.architect + ' ' + lm.city).toLowerCase().indexOf(q) >= 0 : lm.status !== 'descartado'))
+      .sort((a, b) => (['curado', 'posible', 'pendiente', 'descartado'].indexOf(a.status) - ['curado', 'posible', 'pendiente', 'descartado'].indexOf(b.status))
+        || a.name.localeCompare(b.name))
+      .slice(0, 14);
+    const hits = scored.map((lm) => {
+      const inDays = daysOfLandmark(lm.id).map((d) => state.days.indexOf(d) + 1);
+      return '<div class="hit" data-action="pick-landmark" data-day="' + day.id + '" data-id="' + lm.id + '">'
+        + '<i class="dot" style="background:' + COLORS[lm.status] + '"></i>'
+        + '<span><b>' + esc(lm.name) + '</b> <span class="muted">— ' + esc(lm.architect) + ', ' + esc(lm.city) + '</span></span>'
+        + (inDays.length ? '<span class="in">ya está en el día ' + inDays.join(', ') + '</span>' : '') + '</div>';
+    }).join('') || '<div class="muted small">ningún hito coincide</div>';
+    return '<div class="picker"><input type="search" id="picker-input" placeholder="buscar hito por edificio, arquitecto o ciudad" value="'
+      + attr(state.picker.query || '') + '" data-picker-input="1">'
+      + '<div class="hits">' + hits + '</div>'
+      + '<div class="small" style="margin-top:6px"><button class="link" data-action="picker-close">cerrar</button></div></div>';
+  }
+
+  function dayView(day, n) {
+    const stops = state.stops.map((s) => '<option value="' + s.id + '"' + (day.stop_id === s.id ? ' selected' : '') + '>' + esc(s.city) + '</option>').join('');
+    const head = STANDALONE
+      ? '<div class="head"><span class="num">Día ' + n + '</span><b>' + esc(prettyDate(day.date) || day.date || '') + '</b>'
+        + (day.title ? '<span>' + esc(day.title) + '</span>' : '')
+        + (day.stop_city ? '<span class="when">base: ' + esc(day.stop_city) + '</span>' : '') + '</div>'
+      : '<div class="head"><span class="num">Día ' + n + '</span>'
+        + '<input type="date" value="' + attr(day.date || '') + '" data-day-field="date" data-id="' + day.id + '" title="Fecha">'
+        + '<span class="when">' + esc(prettyDate(day.date)) + '</span>'
+        + '<input class="title" type="text" value="' + attr(day.title || '') + '" placeholder="título (opcional): «llegada», «Nara → Kioto»…" data-day-field="title" data-id="' + day.id + '">'
+        + '<select data-day-field="stop_id" data-id="' + day.id + '" title="Ciudad base / dónde se duerme"><option value="">— base —</option>' + stops + '</select>'
+        + '<button class="link small" data-action="day-delete" data-id="' + day.id + '" title="Borrar el día">✕</button></div>';
+    const notes = STANDALONE
+      ? (day.notes ? '<div class="daynotes">' + esc(day.notes) + '</div>' : '')
+      : '<input class="daynotes" type="text" value="' + attr(day.notes || '') + '" placeholder="nota del día (hotel, reservas, avisos…)" data-day-field="notes" data-id="' + day.id + '">';
+    const items = (day.items || []).map((it) => itemView(it, day, n)).join('')
+      || '<li class="empty muted">' + (STANDALONE ? 'sin nada planificado' : 'vacío: añade hitos o una nota') + '</li>';
+    const foot = STANDALONE ? '' : '<div class="foot">'
+      + '<button data-action="picker-open" data-id="' + day.id + '">＋ Hito</button>'
+      + '<button class="quiet" data-action="item-note" data-id="' + day.id + '">＋ Nota</button>'
+      + ((day.items || []).filter((it) => it.at_time).length > 1 ? '<button class="quiet" data-action="sort-by-time" data-id="' + day.id + '">ordenar por hora</button>' : '')
+      + '</div>';
+    return '<section class="dayc" data-day="' + day.id + '">' + head + notes + '<ul>' + items + '</ul>'
+      + (state.picker && state.picker.dayId === day.id ? pickerView(day) : '') + foot + '</section>';
+  }
+
+  function itineraryView() {
+    const bar = STANDALONE ? ''
+      : '<div class="itinbar"><button data-action="day-add">＋ Añadir día</button>'
+        + '<a class="btn quiet" href="/api/trips/' + state.trip.id + '/export/itinerario?download=1" download>⬇ Descargar itinerario</a>'
+        + '<a class="btn quiet" href="/api/trips/' + state.trip.id + '/export/itinerario" target="_blank" rel="noopener">Ver para imprimir</a></div>'
+        + '<div class="muted small" style="margin:0 0 14px">Cada día lleva fecha, ciudad base y sus hitos con hora; arrastra ⠿ para ordenarlos o pasarlos a otro día.</div>';
+    if (!state.days.length) {
+      return '<div class="itin">' + bar + '<div class="empty">'
+        + (STANDALONE ? 'Este viaje no tiene itinerario.' : 'Todavía no hay días. Pulsa <b>Añadir día</b>: el primero toma la fecha de hoy y los siguientes van encadenando el día siguiente.')
+        + '</div></div>';
+    }
+    return '<div class="itin">' + bar + state.days.map((d, i) => dayView(d, i + 1)).join('') + '</div>';
+  }
+
   function listView() {
+    if (state.view === 'itinerario') return itineraryView();
     const items = visibleLandmarks();
     const empty = emptyView(items);
     if (empty) return empty;
@@ -896,8 +1057,13 @@
     el('route').innerHTML = routeView();
     el('progress').innerHTML = progressView();
     el('msg').innerHTML = msgView();
+    const controls = document.querySelector('.controls');
+    if (controls) controls.classList.toggle('itin', state.view === 'itinerario');
     if (state.view === 'mapa') renderMap();
-    else el('list').innerHTML = listView();
+    else {
+      el('list').innerHTML = listView();
+      if (state.view === 'itinerario') wireItems();
+    }
   }
 
   // Cheap refresh of one landmark wherever it is shown (used while enrichment trickles in).
@@ -947,6 +1113,7 @@
       + '<div class="bigbtns"><a class="btn" href="' + attr(googleUrl(lm)) + '" target="_blank" rel="noopener">Buscar en Google</a>'
       + '<a class="btn" href="' + attr(imagesUrl(lm)) + '" target="_blank" rel="noopener">Buscar en Google Imágenes</a></div>'
       + '<div class="links small">' + linksView(lm) + '</div>'
+      + itineraryBox(lm)
       + (lm.notes ? '<div class="notes small">' + esc(lm.notes) + '</div>' : '')
       + '<div class="small" style="margin-top:10px"><button class="link" data-action="edit" data-id="' + lm.id + '">editar</button>'
       + ' <button class="link" data-action="add-image-form" data-id="' + lm.id + '">añadir foto o plano</button>'
@@ -959,6 +1126,18 @@
       + ' <span class="muted small">no se puede deshacer</span></div>'
       + '</div></div></div>';
     wireDrag(lm);
+  }
+
+  // En la ficha: en qué días está este hito y un desplegable para meterlo en otro.
+  function itineraryBox(lm) {
+    const inDays = daysOfLandmark(lm.id).map((d) => 'día ' + (state.days.indexOf(d) + 1) + (d.date ? ' (' + prettyDate(d.date) + ')' : ''));
+    const where = inDays.length ? '<span class="muted">En el itinerario: ' + esc(inDays.join(', ')) + '</span>' : '';
+    if (STANDALONE) return where ? '<div class="small" style="margin-top:8px">' + where + '</div>' : '';
+    if (!state.days.length) return '';
+    const options = state.days.map((d, i) => '<option value="' + d.id + '">' + esc(dayLabel(d, i + 1)) + '</option>').join('');
+    return '<div class="small" style="margin-top:8px">' + where
+      + ' <select data-add-day="' + lm.id + '" style="font-family:inherit;font-size:12px;padding:3px 5px;border:1px solid var(--line);background:var(--bg);color:var(--ink)">'
+      + '<option value="">añadir a un día…</option>' + options + '</select></div>';
   }
 
   function addImageView(lm) {
@@ -1014,9 +1193,12 @@
     image_order: 'imágenes reordenadas', image_kind: 'imagen reclasificada', route_upload: 'ruta subida', trip_create: 'viaje creado',
     trip_rename: 'viaje renombrado', trip_delete: 'viaje borrado', retry_geocode: 'relocalizar', refresh_images: 'buscar imágenes',
     retry_links: 'buscar enlaces', restore: 'copia restaurada',
+    day_create: 'día creado', day_edit: 'día editado', day_delete: 'día borrado', item_add: 'añadido a un día',
+    item_edit: 'itinerario editado', item_delete: 'quitado de un día', item_move: 'movido de día', item_order: 'día reordenado',
   };
   const FIELD_LABEL = { status: 'estado', coords: 'coordenadas', name: 'edificio', architect: 'arquitecto', city: 'ciudad', address: 'dirección',
-    year: 'año', notes: 'notas', url_archdaily: 'ArchDaily', url_av: 'Arquitectura Viva', url_image1: 'imagen 1', url_image2: 'imagen 2' };
+    year: 'año', notes: 'notas', url_archdaily: 'ArchDaily', url_av: 'Arquitectura Viva', url_image1: 'imagen 1', url_image2: 'imagen 2',
+    date: 'fecha', title: 'título', stop_id: 'ciudad base', at_time: 'hora', text: 'texto', day_id: 'día' };
   const when = (iso) => { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? iso : d.toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }); };
   const kb = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 
@@ -1133,9 +1315,10 @@
     try {
       const d = await store.getTrip(id);
       state.trip = d.trip; state.stops = d.stops; state.landmarks = d.landmarks; state.pending = d.pending;
+      state.days = d.days || []; sortDays();
       state.screen = 'trip';
       if (!keepMsg) state.msg = null;
-      state.editing = null; state.detail = null;
+      state.editing = null; state.detail = null; state.picker = null;
       mapState.map = null; mapState.cluster = null; mapState.fitted = false; mapState.listPopup = null;
       render();
       if (openId && state.landmarks.some((x) => x.id === openId)) openDetail(openId);   // deep link to a ficha
@@ -1262,8 +1445,94 @@
     } catch (e) { alert(e.message || 'No se ha podido añadir la imagen'); }
   }
 
+  // ---- itinerario: acciones y arrastre
+  async function dayDo(fn) {
+    try { await fn(); } catch (e) { fail(e); }
+    renderList();
+  }
+
+  function wireItems() {
+    const rows = Array.from(document.querySelectorAll('.dayc li[draggable]'));
+    let dragged = null;
+    rows.forEach((el) => {
+      el.addEventListener('dragstart', (e) => { dragged = el; el.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', el.dataset.item); } catch (x) { /* ie */ } });
+      el.addEventListener('dragend', () => { el.classList.remove('dragging'); rows.forEach((x) => x.classList.remove('over')); });
+      el.addEventListener('dragover', (e) => { e.preventDefault(); if (dragged && dragged !== el) el.classList.add('over'); });
+      el.addEventListener('dragleave', () => el.classList.remove('over'));
+      el.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (!dragged || dragged === el) return;
+        moveItem(Number(dragged.dataset.item), Number(dragged.dataset.day), Number(el.dataset.day), Number(el.dataset.item));
+      });
+    });
+    // soltar sobre el hueco del día (lista vacía o zona baja) = al final de ese día
+    Array.from(document.querySelectorAll('.dayc ul')).forEach((ul) => {
+      ul.addEventListener('dragover', (e) => e.preventDefault());
+      ul.addEventListener('drop', (e) => {
+        if (!dragged || e.target.closest('li[draggable]')) return;
+        e.preventDefault();
+        moveItem(Number(dragged.dataset.item), Number(dragged.dataset.day), Number(ul.closest('.dayc').dataset.day), null);
+      });
+    });
+  }
+
+  // Mueve un elemento dentro de su día o a otro, dejándolo delante de `beforeId` (o al final).
+  function moveItem(itemId, fromDayId, toDayId, beforeId) {
+    const from = state.days.find((d) => d.id === fromDayId), to = state.days.find((d) => d.id === toDayId);
+    if (!from || !to) return;
+    dayDo(async () => {
+      if (fromDayId !== toDayId) {
+        applyDay(await store.patchItem(itemId, { day_id: toDayId }));   // devuelve el día destino
+        const src = state.days.find((d) => d.id === fromDayId);
+        if (src) src.items = (src.items || []).filter((it) => it.id !== itemId);
+      }
+      const target = state.days.find((d) => d.id === toDayId);
+      const ids = (target.items || []).map((it) => it.id).filter((id) => id !== itemId);
+      const at = beforeId != null ? ids.indexOf(beforeId) : -1;
+      if (at < 0) ids.push(itemId); else ids.splice(at, 0, itemId);
+      applyDay(await store.orderItems(toDayId, ids));
+    });
+  }
+
+  function nextDate() {
+    const dated = state.days.filter((d) => d.date).map((d) => d.date).sort();
+    if (!dated.length) return new Date().toISOString().slice(0, 10);
+    const d = new Date(dated[dated.length - 1] + 'T12:00:00');
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  }
+
   const actions = {
     'dismiss-msg': () => { state.msg = null; state.screen === 'trip' ? renderList() : render(); },
+    'day-add': () => dayDo(async () => {
+      const last = state.days[state.days.length - 1];
+      applyDay(await store.createDay(state.trip.id, { date: nextDate(), stop_id: last ? last.stop_id : (state.stops[0] || {}).id || null }));
+    }),
+    'day-delete': (el) => {
+      const day = state.days.find((d) => d.id === Number(el.dataset.id));
+      const n = state.days.indexOf(day) + 1;
+      if (!day || !confirm('¿Borrar el día ' + n + (day.date ? ' (' + prettyDate(day.date) + ')' : '') + ' y sus ' + (day.items || []).length + ' elementos?\nLos hitos no se borran, solo dejan de estar en ese día.')) return;
+      dayDo(async () => { await store.deleteDay(day.id); state.days = state.days.filter((d) => d.id !== day.id); });
+    },
+    'picker-open': (el) => { state.picker = { dayId: Number(el.dataset.id), query: '' }; renderList(); const i = document.getElementById('picker-input'); if (i) i.focus(); },
+    'picker-close': () => { state.picker = null; renderList(); },
+    'pick-landmark': (el) => dayDo(async () => {
+      applyDay(await store.addItem(Number(el.dataset.day), { kind: 'hito', landmark_id: Number(el.dataset.id) }));
+    }),
+    'item-note': (el) => dayDo(async () => {
+      const day = applyDayAnd(await store.addItem(Number(el.dataset.id), { kind: 'nota', text: 'nota' }));
+      setTimeout(() => {                       // deja el cursor dentro de la nota recién creada
+        const last = (day.items || []).filter((it) => it.kind === 'nota').pop();
+        const box = last && document.querySelector('textarea[data-id="' + last.id + '"]');
+        if (box) { box.focus(); box.select(); }
+      }, 0);
+    }),
+    'item-delete': (el) => dayDo(async () => { applyDay(await store.deleteItem(Number(el.dataset.id))); }),
+    'sort-by-time': (el) => dayDo(async () => {
+      const day = state.days.find((d) => d.id === Number(el.dataset.id));
+      const ids = (day.items || []).slice().sort((a, b) => (a.at_time || '99:99').localeCompare(b.at_time || '99:99')).map((it) => it.id);
+      applyDay(await store.orderItems(day.id, ids));
+    }),
     'adm-dismiss': () => { state.admin.note = null; render(); },
     'adm-logout': () => adminDo(async () => { await admin.post('/logout'); state.admin.authed = false; return null; }),
     'adm-open-session': (el) => adminDo(async () => {
@@ -1387,6 +1656,29 @@
   });
 
   app.addEventListener('change', (e) => {
+    const dayField = e.target.closest('[data-day-field]');
+    if (dayField) {
+      const value = dayField.value;
+      dayDo(async () => applyDay(await store.patchDay(Number(dayField.dataset.id),
+        { [dayField.dataset.dayField]: dayField.dataset.dayField === 'stop_id' ? (value ? Number(value) : null) : value })));
+      return;
+    }
+    const itemField = e.target.closest('[data-item-field]');
+    if (itemField) {
+      const body = { [itemField.dataset.itemField]: itemField.value };
+      dayDo(async () => applyDay(await store.patchItem(Number(itemField.dataset.id), body)));
+      return;
+    }
+    const addDay = e.target.closest('select[data-add-day]');
+    if (addDay && addDay.value) {
+      const dayId = Number(addDay.value), lmId = Number(addDay.dataset.addDay);
+      addDay.value = '';
+      dayDo(async () => {
+        applyDay(await store.addItem(dayId, { kind: 'hito', landmark_id: lmId }));
+        renderDetail();
+      });
+      return;
+    }
     const toggle = e.target.closest('input[data-toggle]');
     if (toggle) {
       state[toggle.dataset.toggle] = toggle.checked;
@@ -1404,6 +1696,13 @@
   });
 
   app.addEventListener('input', (e) => {
+    if (e.target.dataset && e.target.dataset.pickerInput && state.picker) {
+      state.picker.query = e.target.value;
+      const box = document.querySelector('.picker .hits');
+      const day = state.days.find((d) => d.id === state.picker.dayId);
+      if (box && day) box.innerHTML = new DOMParser().parseFromString(pickerView(day), 'text/html').querySelector('.hits').innerHTML;
+      return;
+    }
     if (e.target.id === 'search') {
       state.query = e.target.value; mapState.fitted = false;
       if (state.view === 'mapa') renderMap(); else document.getElementById('list').innerHTML = listView();

@@ -65,6 +65,29 @@ CREATE TABLE IF NOT EXISTS landmark_images (
 );
 CREATE INDEX IF NOT EXISTS idx_landmark_images ON landmark_images (landmark_id, kind, position);
 
+-- Itinerary: one row per day of the trip, in date order (a day may still have no date).
+CREATE TABLE IF NOT EXISTS trip_days (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id  INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    date     TEXT,                                  -- YYYY-MM-DD
+    position INTEGER NOT NULL DEFAULT 0,
+    stop_id  INTEGER REFERENCES route_stops(id) ON DELETE SET NULL,   -- base/ciudad donde se duerme
+    title    TEXT,
+    notes    TEXT
+);
+
+-- What happens on a day: landmarks in order, plus free text blocks; both may carry a time.
+CREATE TABLE IF NOT EXISTS day_items (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    day_id      INTEGER NOT NULL REFERENCES trip_days(id) ON DELETE CASCADE,
+    position    INTEGER NOT NULL DEFAULT 0,
+    at_time     TEXT,                               -- HH:MM, opcional
+    kind        TEXT NOT NULL,                      -- hito | nota
+    landmark_id INTEGER REFERENCES landmarks(id) ON DELETE CASCADE,
+    text        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_day_items ON day_items (day_id, position);
+
 -- Editing sessions (see audit.py): opened by the first change of a client, closed by inactivity.
 CREATE TABLE IF NOT EXISTS sessions (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

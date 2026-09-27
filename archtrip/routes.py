@@ -1,4 +1,5 @@
 import io
+import re
 
 from flask import Blueprint, abort, jsonify, request, send_file
 
@@ -47,12 +48,27 @@ def _landmark_or_404(db, lm_id):
     return _attach_images(db, [lm])[0]
 
 
+def _trip_days(db, trip_id):
+    """Days in date order (undated last), each with its ordered items."""
+    days = rows(db.execute(
+        "SELECT d.*, s.city AS stop_city FROM trip_days d LEFT JOIN route_stops s ON s.id = d.stop_id "
+        "WHERE d.trip_id = ? ORDER BY (d.date IS NULL OR d.date = ''), d.date, d.position, d.id", (trip_id,)))
+    if days:
+        by_id = {d["id"]: dict(d, items=[]) for d in days}
+        marks = ",".join("?" * len(by_id))
+        for it in rows(db.execute(f"SELECT * FROM day_items WHERE day_id IN ({marks}) ORDER BY day_id, position, id",
+                                  tuple(by_id))):
+            by_id[it["day_id"]]["items"].append(it)
+        days = [by_id[d["id"]] for d in days]
+    return days
+
+
 def _trip_payload(db, trip):
     stops = rows(db.execute("SELECT * FROM route_stops WHERE trip_id = ? ORDER BY position",
                             (trip["id"],)))
     landmarks = _attach_images(db, rows(db.execute(
         LANDMARK_SELECT + " WHERE l.trip_id = ? ORDER BY l.sort_order, l.id", (trip["id"],))))
-    return {"trip": trip, "stops": stops, "landmarks": landmarks,
+    return {"trip": trip, "stops": stops, "landmarks": landmarks, "days": _trip_days(db, trip["id"]),
             "pending": enrich.pending_counts(db, trip["id"])}
 
 
@@ -430,6 +446,207 @@ def delete_landmark(lm_id):
     return "", 204
 
 
+# --------------------------------------------------------------- itinerary
+# Days of the trip, each with an ordered list of landmarks and free text blocks.
+
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def _day_or_404(db, day_id):
+    d = row(db.execute("SELECT * FROM trip_days WHERE id = ?", (day_id,)))
+    if d is None:
+        abort(404, description="Día no encontrado")
+    return d
+
+
+def _item_or_404(db, item_id):
+    it = row(db.execute("SELECT i.*, d.trip_id FROM day_items i JOIN trip_days d ON d.id = i.day_id "
+                        "WHERE i.id = ?", (item_id,)))
+    if it is None:
+        abort(404, description="Elemento no encontrado")
+    return it
+
+
+def _clean_date(value):
+    value = (value or "").strip()
+    if value and not DATE_RE.match(value):
+        abort(400, description="La fecha debe ser AAAA-MM-DD")
+    return value or None
+
+
+def _clean_time(value):
+    value = (value or "").strip()
+    if value and not TIME_RE.match(value):
+        abort(400, description="La hora debe ser HH:MM")
+    return value or None
+
+
+def _day_view(db, day_id):
+    d = row(db.execute("SELECT d.*, s.city AS stop_city FROM trip_days d LEFT JOIN route_stops s ON s.id = d.stop_id "
+                       "WHERE d.id = ?", (day_id,)))
+    d["items"] = rows(db.execute("SELECT * FROM day_items WHERE day_id = ? ORDER BY position, id", (day_id,)))
+    return d
+
+
+def _day_label(day):
+    return day.get("date") or day.get("title") or f"día {day['id']}"
+
+
+def _item_label(db, item):
+    if item["kind"] == "hito":
+        lm = row(db.execute("SELECT name FROM landmarks WHERE id = ?", (item["landmark_id"],)))
+        return (lm or {}).get("name") or f"hito {item['landmark_id']}"
+    return (item["text"] or "")[:60]
+
+
+@api.post("/trips/<int:trip_id>/days")
+def create_day(trip_id):
+    db = get_db()
+    _trip_or_404(db, trip_id)
+    body = request.get_json(silent=True) or {}
+    date = _clean_date(body.get("date"))
+    stop_id = body.get("stop_id") or None
+    if stop_id and not row(db.execute("SELECT 1 AS x FROM route_stops WHERE id = ? AND trip_id = ?", (stop_id, trip_id))):
+        abort(400, description="Esa parada no es de este viaje")
+    pos = db.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM trip_days WHERE trip_id = ?", (trip_id,)).fetchone()[0]
+    cur = db.execute("INSERT INTO trip_days (trip_id, date, position, stop_id, title, notes) VALUES (?, ?, ?, ?, ?, ?)",
+                     (trip_id, date, pos, stop_id, (body.get("title") or "").strip() or None,
+                      (body.get("notes") or "").strip() or None))
+    audit.log(db, "day_create", trip_id, new=date or f"día {cur.lastrowid}", snapshot={"id": cur.lastrowid})
+    db.commit()
+    return jsonify(_day_view(db, cur.lastrowid)), 201
+
+
+@api.patch("/days/<int:day_id>")
+def patch_day(day_id):
+    db = get_db()
+    day = _day_or_404(db, day_id)
+    body = request.get_json(silent=True) or {}
+    for field in ("date", "stop_id", "title", "notes"):
+        if field not in body:
+            continue
+        if field == "date":
+            value = _clean_date(body["date"])
+        elif field == "stop_id":
+            value = body["stop_id"] or None
+            if value and not row(db.execute("SELECT 1 AS x FROM route_stops WHERE id = ? AND trip_id = ?",
+                                            (value, day["trip_id"]))):
+                abort(400, description="Esa parada no es de este viaje")
+        else:
+            value = (body[field] or "").strip() or None
+        if value != day[field]:
+            db.execute(f"UPDATE trip_days SET {field} = ? WHERE id = ?", (value, day_id))
+            audit.log(db, "day_edit", day["trip_id"], field=field, old=day[field], new=value,
+                      snapshot={"day_id": day_id}, landmark_name=_day_label(day))
+    db.commit()
+    return jsonify(_day_view(db, day_id))
+
+
+@api.delete("/days/<int:day_id>")
+def delete_day(day_id):
+    db = get_db()
+    day = _day_or_404(db, day_id)
+    snap = dict(day, items=rows(db.execute("SELECT * FROM day_items WHERE day_id = ? ORDER BY position, id", (day_id,))))
+    audit.log(db, "day_delete", day["trip_id"], old=_day_label(day), snapshot=snap, landmark_name=_day_label(day))
+    db.execute("DELETE FROM trip_days WHERE id = ?", (day_id,))
+    db.commit()
+    return "", 204
+
+
+@api.post("/days/<int:day_id>/items")
+def add_item(day_id):
+    db = get_db()
+    day = _day_or_404(db, day_id)
+    body = request.get_json(silent=True) or {}
+    kind = body.get("kind") or ("hito" if body.get("landmark_id") else "nota")
+    if kind not in ("hito", "nota"):
+        abort(400, description="Tipo no válido")
+    at_time = _clean_time(body.get("at_time"))
+    landmark_id, text = None, None
+    if kind == "hito":
+        landmark_id = body.get("landmark_id")
+        if not row(db.execute("SELECT 1 AS x FROM landmarks WHERE id = ? AND trip_id = ?", (landmark_id, day["trip_id"]))):
+            abort(400, description="Ese hito no es de este viaje")
+    else:
+        text = (body.get("text") or "").strip()
+        if not text:
+            abort(400, description="Escribe el texto de la nota")
+    pos = db.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM day_items WHERE day_id = ?", (day_id,)).fetchone()[0]
+    cur = db.execute("INSERT INTO day_items (day_id, position, at_time, kind, landmark_id, text) VALUES (?, ?, ?, ?, ?, ?)",
+                     (day_id, pos, at_time, kind, landmark_id, text))
+    item = row(db.execute("SELECT * FROM day_items WHERE id = ?", (cur.lastrowid,)))
+    audit.log(db, "item_add", day["trip_id"], landmark_id, _item_label(db, item), new=_day_label(day), snapshot=item)
+    db.commit()
+    return jsonify(_day_view(db, day_id)), 201
+
+
+@api.patch("/items/<int:item_id>")
+def patch_item(item_id):
+    """Time, note text, or move to another day ({day_id})."""
+    db = get_db()
+    item = _item_or_404(db, item_id)
+    body = request.get_json(silent=True) or {}
+    label = _item_label(db, item)
+    if "at_time" in body:
+        value = _clean_time(body["at_time"])
+        if value != item["at_time"]:
+            db.execute("UPDATE day_items SET at_time = ? WHERE id = ?", (value, item_id))
+            audit.log(db, "item_edit", item["trip_id"], item["landmark_id"], label, field="at_time",
+                      old=item["at_time"], new=value, snapshot={"item_id": item_id})
+    if "text" in body and item["kind"] == "nota":
+        value = (body["text"] or "").strip()
+        if not value:
+            abort(400, description="Escribe el texto de la nota")
+        if value != item["text"]:
+            db.execute("UPDATE day_items SET text = ? WHERE id = ?", (value, item_id))
+            audit.log(db, "item_edit", item["trip_id"], None, label, field="text",
+                      old=item["text"], new=value, snapshot={"item_id": item_id})
+    if "day_id" in body and body["day_id"] != item["day_id"]:
+        target = _day_or_404(db, body["day_id"])
+        if target["trip_id"] != item["trip_id"]:
+            abort(400, description="Ese día no es de este viaje")
+        pos = db.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM day_items WHERE day_id = ?",
+                         (target["id"],)).fetchone()[0]
+        db.execute("UPDATE day_items SET day_id = ?, position = ? WHERE id = ?", (target["id"], pos, item_id))
+        audit.log(db, "item_move", item["trip_id"], item["landmark_id"], label, field="day_id",
+                  old=item["day_id"], new=target["id"], snapshot={"item_id": item_id, "position": item["position"]})
+    db.commit()
+    it = row(db.execute("SELECT day_id FROM day_items WHERE id = ?", (item_id,)))
+    return jsonify(_day_view(db, it["day_id"]))
+
+
+@api.delete("/items/<int:item_id>")
+def delete_item(item_id):
+    db = get_db()
+    item = _item_or_404(db, item_id)
+    snap = {k: item[k] for k in ("id", "day_id", "position", "at_time", "kind", "landmark_id", "text")}
+    audit.log(db, "item_delete", item["trip_id"], item["landmark_id"], _item_label(db, item), snapshot=snap)
+    db.execute("DELETE FROM day_items WHERE id = ?", (item_id,))
+    db.commit()
+    return jsonify(_day_view(db, item["day_id"]))
+
+
+@api.put("/days/<int:day_id>/items/order")
+def order_items(day_id):
+    """{ids: [...]} in the wanted order, all of this day."""
+    db = get_db()
+    day = _day_or_404(db, day_id)
+    ids = (request.get_json(silent=True) or {}).get("ids") or []
+    if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+        abort(400, description="Lista de elementos no válida")
+    before = [[r["id"], r["position"]] for r in
+              db.execute("SELECT id, position FROM day_items WHERE day_id = ?", (day_id,)).fetchall()]
+    for pos, item_id in enumerate(ids, start=1):
+        db.execute("UPDATE day_items SET position = ? WHERE id = ? AND day_id = ?", (pos, item_id, day_id))
+    after = {r["id"]: r["position"] for r in
+             db.execute("SELECT id, position FROM day_items WHERE day_id = ?", (day_id,)).fetchall()}
+    if any(after.get(i) != p for i, p in before):
+        audit.log(db, "item_order", day["trip_id"], landmark_name=_day_label(day), snapshot=before)
+    db.commit()
+    return jsonify(_day_view(db, day_id))
+
+
 # ----------------------------------------------------------------- enrich
 
 @api.post("/trips/<int:trip_id>/enrich/next")
@@ -453,6 +670,16 @@ def export_html(trip_id):
     html, filename = export.standalone_html(_trip_payload(db, trip))
     return send_file(io.BytesIO(html.encode("utf-8")), mimetype="text/html",
                      as_attachment=True, download_name=filename)
+
+
+@api.get("/trips/<int:trip_id>/export/itinerario")
+def export_itinerary(trip_id):
+    """Day-by-day itinerary, ready to print (or to save as PDF from the browser)."""
+    db = get_db()
+    trip = _trip_or_404(db, trip_id)
+    html, filename = export.itinerary_html(_trip_payload(db, trip))
+    return send_file(io.BytesIO(html.encode("utf-8")), mimetype="text/html",
+                     as_attachment=("download" in request.args), download_name=filename)
 
 
 @api.get("/trips/<int:trip_id>/export/obsidian")

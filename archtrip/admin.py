@@ -185,6 +185,32 @@ def _insert_image(db, im):
         db.execute(f"INSERT INTO landmark_images ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", vals)
 
 
+def _insert_day(db, snap):
+    cols = ["trip_id", "date", "position", "stop_id", "title", "notes"]
+    vals = [snap.get(c) for c in cols]
+    if snap.get("stop_id") and row(db.execute("SELECT 1 AS x FROM route_stops WHERE id = ?", (snap["stop_id"],))) is None:
+        vals[cols.index("stop_id")] = None
+    new_id = _free_id(db, "trip_days", snap["id"])
+    if new_id:
+        db.execute(f"INSERT INTO trip_days (id, {', '.join(cols)}) VALUES (?, {', '.join('?' * len(cols))})", [new_id] + vals)
+    else:
+        new_id = db.execute(f"INSERT INTO trip_days ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", vals).lastrowid
+    for it in snap.get("items", []):
+        if it["kind"] == "hito" and row(db.execute("SELECT 1 AS x FROM landmarks WHERE id = ?", (it["landmark_id"],))) is None:
+            continue                      # el hito se borró después: no se puede recuperar esa línea
+        _insert_item(db, dict(it, day_id=new_id))
+    return new_id
+
+
+def _insert_item(db, snap):
+    cols = ["day_id", "position", "at_time", "kind", "landmark_id", "text"]
+    vals = [snap.get(c) for c in cols]
+    if snap.get("id") and _free_id(db, "day_items", snap["id"]):
+        db.execute(f"INSERT INTO day_items (id, {', '.join(cols)}) VALUES (?, {', '.join('?' * len(cols))})", [snap["id"]] + vals)
+    else:
+        db.execute(f"INSERT INTO day_items ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", vals)
+
+
 def _restore_stops(db, trip_id, stops):
     db.execute("DELETE FROM route_stops WHERE trip_id = ?", (trip_id,))
     for s in stops:
@@ -292,6 +318,76 @@ def revert_change(db, c):
         db.execute("UPDATE landmark_images SET kind = ? WHERE id = ?", (c["old_value"], snap["id"]))
         audit.log(db, "image_kind", trip_id, lm_id, c["landmark_name"], old=c["new_value"], new=c["old_value"],
                   snapshot=snap, revert_of=c["id"])
+    elif action == "day_create":
+        day = row(db.execute("SELECT * FROM trip_days WHERE id = ?", (snap["id"],)))
+        if not day:
+            return "el día ya no existe"
+        items = rows(db.execute("SELECT * FROM day_items WHERE day_id = ? ORDER BY position, id", (day["id"],)))
+        audit.log(db, "day_delete", trip_id, landmark_name=c["landmark_name"], snapshot=dict(day, items=items),
+                  revert_of=c["id"])
+        db.execute("DELETE FROM trip_days WHERE id = ?", (day["id"],))
+    elif action == "day_delete":
+        if row(db.execute("SELECT 1 AS x FROM trip_days WHERE id = ?", (snap["id"],))):
+            return "el día ya existe"
+        new_id = _insert_day(db, snap)
+        audit.log(db, "day_create", trip_id, landmark_name=c["landmark_name"], snapshot={"id": new_id}, revert_of=c["id"])
+        msg = "día recuperado"
+    elif action == "day_edit":
+        day = row(db.execute("SELECT * FROM trip_days WHERE id = ?", (snap["day_id"],)))
+        if not day:
+            return "el día ya no existe"
+        value = c["old_value"]
+        if c["field"] == "stop_id":
+            value = int(value) if value else None
+            if value and not row(db.execute("SELECT 1 AS x FROM route_stops WHERE id = ?", (value,))):
+                value = None
+        db.execute(f"UPDATE trip_days SET {c['field']} = ? WHERE id = ?", (value, day["id"]))
+        audit.log(db, "day_edit", trip_id, landmark_name=c["landmark_name"], field=c["field"],
+                  old=c["new_value"], new=value, snapshot=snap, revert_of=c["id"])
+    elif action == "item_add":
+        it = row(db.execute("SELECT * FROM day_items WHERE id = ?", (snap["id"],)))
+        if not it:
+            return "el elemento ya no existe"
+        db.execute("DELETE FROM day_items WHERE id = ?", (it["id"],))
+        audit.log(db, "item_delete", trip_id, lm_id, c["landmark_name"], snapshot=it, revert_of=c["id"])
+    elif action == "item_delete":
+        if row(db.execute("SELECT 1 AS x FROM day_items WHERE id = ?", (snap["id"],))):
+            return "el elemento ya existe"
+        if not row(db.execute("SELECT 1 AS x FROM trip_days WHERE id = ?", (snap["day_id"],))):
+            return "su día ya no existe"
+        if snap["kind"] == "hito" and not row(db.execute("SELECT 1 AS x FROM landmarks WHERE id = ?", (snap["landmark_id"],))):
+            return "el hito ya no existe"
+        _insert_item(db, snap)
+        audit.log(db, "item_add", trip_id, lm_id, c["landmark_name"], snapshot=snap, revert_of=c["id"])
+    elif action == "item_edit":
+        it = row(db.execute("SELECT * FROM day_items WHERE id = ?", (snap["item_id"],)))
+        if not it:
+            return "el elemento ya no existe"
+        db.execute(f"UPDATE day_items SET {c['field']} = ? WHERE id = ?", (c["old_value"], it["id"]))
+        audit.log(db, "item_edit", trip_id, lm_id, c["landmark_name"], field=c["field"],
+                  old=c["new_value"], new=c["old_value"], snapshot=snap, revert_of=c["id"])
+    elif action == "item_move":
+        it = row(db.execute("SELECT * FROM day_items WHERE id = ?", (snap["item_id"],)))
+        if not it:
+            return "el elemento ya no existe"
+        back = int(c["old_value"])
+        if not row(db.execute("SELECT 1 AS x FROM trip_days WHERE id = ?", (back,))):
+            return "su día anterior ya no existe"
+        db.execute("UPDATE day_items SET day_id = ?, position = ? WHERE id = ?", (back, snap["position"], it["id"]))
+        audit.log(db, "item_move", trip_id, lm_id, c["landmark_name"], field="day_id", old=c["new_value"], new=back,
+                  snapshot={"item_id": it["id"], "position": it["position"]}, revert_of=c["id"])
+    elif action == "item_order":
+        ids = [i for i, _ in snap]
+        if not ids:
+            return "sin elementos"
+        current = [[r["id"], r["position"]] for r in db.execute(
+            "SELECT id, position FROM day_items WHERE day_id = (SELECT day_id FROM day_items WHERE id = ?)",
+            (ids[0],)).fetchall()]
+        if not current:
+            return "el día ya no existe"
+        for item_id, pos in snap:
+            db.execute("UPDATE day_items SET position = ? WHERE id = ?", (pos, item_id))
+        audit.log(db, "item_order", trip_id, landmark_name=c["landmark_name"], snapshot=current, revert_of=c["id"])
     elif action == "route_upload":
         current = rows(db.execute("SELECT * FROM route_stops WHERE trip_id = ? ORDER BY position", (trip_id,)))
         _restore_stops(db, trip_id, snap)
@@ -317,6 +413,8 @@ def revert_change(db, c):
         _restore_stops(db, tid, snap["stops"])
         for s in snap["landmarks"]:
             _insert_landmark(db, dict(s, trip_id=tid))
+        for d in snap.get("days", []):
+            _insert_day(db, dict(d, trip_id=tid))
         audit.log(db, "trip_create", tid, new=snap["trip"]["name"], revert_of=c["id"])
         msg = f"viaje recuperado (id {tid})"
     else:

@@ -93,7 +93,11 @@ def trip_snapshot(db, trip_id):
                                          (trip_id,)).fetchall()]
     lms = [landmark_snapshot(db, r["id"]) for r in
            db.execute("SELECT id FROM landmarks WHERE trip_id = ?", (trip_id,)).fetchall()]
-    return {"trip": t, "stops": stops, "landmarks": lms}
+    days = []
+    for d in db.execute("SELECT * FROM trip_days WHERE trip_id = ? ORDER BY position, id", (trip_id,)).fetchall():
+        days.append(dict(d, items=[dict(i) for i in db.execute(
+            "SELECT * FROM day_items WHERE day_id = ? ORDER BY position, id", (d["id"],)).fetchall()]))
+    return {"trip": t, "stops": stops, "landmarks": lms, "days": days}
 
 
 def coords_text(lat, lon, geocode_status=None):

@@ -81,13 +81,32 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
      todo" (o la tecla `Supr`) lo quita del viaje definitivamente — descartar solo lo aparta.
    En todas: pestañas por estado, buscador, y los botones ✓ Curar / ? Posible / ✗ Descartar
    (pulsar el activo lo devuelve a pendiente).
-5. **Exportar**:
+5. **Itinerario** (la quinta pestaña): monta el viaje día a día.
+   - **Añadir día** crea el día siguiente al último (el primero toma la fecha de hoy). Cada día
+     lleva **fecha** de calendario, un **título** opcional («Llegada», «Nara → Kioto»), la
+     **ciudad base** — una parada de la ruta, es decir dónde se duerme — y una **nota del día**
+     (hotel, reservas, avisos). Los días se ordenan solos por fecha; los que aún no la tienen
+     quedan al final.
+   - **＋ Hito** abre un buscador entre los hitos del viaje (los descartados solo salen si los
+     buscas por nombre) y avisa si ese hito ya está puesto en otro día. **＋ Nota** añade un
+     bloque de texto libre para lo que no es un edificio: un tren, una comida, un aviso.
+   - Cada línea puede llevar **hora** (opcional) y se **reordena arrastrando ⠿**, también de un
+     día a otro. **Ordenar por hora** recoloca de golpe las que tengan hora.
+   - Desde la **ficha** de cualquier hito hay un desplegable «añadir a un día…», y la ficha dice
+     en qué días está ya metido.
+   - Quitar una línea (✕) no borra el hito del viaje, solo lo saca de ese día; borrar un día
+     tampoco borra sus hitos.
+6. **Exportar**:
+   - **Itinerario**: un HTML día a día, pensado para imprimir o guardar como PDF desde el
+     navegador (Ctrl+P → Guardar como PDF), con las horas, el arquitecto y el edificio, ciudad,
+     año, tiempo en coche desde la base y enlaces a mapa, ArchDaily, Arquitectura Viva y
+     Wikipedia. «Ver para imprimir» lo abre en otra pestaña sin descargarlo.
    - **HTML**: un único archivo `viaje-<nombre>.html` que se abre con doble clic en cualquier
      ordenador, sin servidor. Guarda los cambios en el navegador y con **Guardar copia**
      genera un nuevo HTML con el estado actual para compartir.
    - **Obsidian**: un ZIP con una carpeta lista para soltar en un vault: una nota por hito y
-     por parada (con propiedades) y un `Viaje.base` (Obsidian Bases) con vistas *Todos*,
-     *Curados*, *Posibles* y *Fichas*.
+     por parada (con propiedades), un `Itinerario.md` con los días enlazando a cada nota y un
+     `Viaje.base` (Obsidian Bases) con vistas *Todos*, *Curados*, *Posibles* y *Fichas*.
 
 ### Detalles que conviene saber
 
@@ -116,6 +135,8 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
   el nombre, o "quitar esta imagen". Unas 4 peticiones por hito a 1/s: 100 hitos ≈ 8 min.
   Si el hito no se había localizado con precisión y Wikidata sí lo conoce, se usan sus
   coordenadas y se recalcula el tiempo en coche.
+- El itinerario viaja dentro de la copia HTML autónoma, pero ahí solo se lee: los días se
+  editan en la app.
 - El mapa carga Leaflet y las teselas de OpenStreetMap por internet (también en la copia HTML).
 - Wikimedia pide un contacto en el User-Agent: se puede poner con la variable de entorno
   `ARCHTRIP_CONTACT` (p. ej. una URL o un email).
@@ -141,7 +162,8 @@ administración (abajo), o a mano: parar el contenedor, copiar el `.db` elegido 
 ## Sesiones de edición y página de administración
 
 Cada cambio que alguien hace (curar, editar, borrar, subir plantillas, añadir o quitar fotos,
-renombrar o borrar viajes…) queda anotado en un diario con lo necesario para deshacerlo. Mirar
+montar el itinerario, renombrar o borrar viajes…) queda anotado en un diario con lo necesario
+para deshacerlo. Mirar
 no deja rastro: la **sesión** de un navegador se abre con su primer cambio (se identifica con
 una cookie, la IP y el navegador) y se da por cerrada tras **una hora sin cambios**. Los
 archivos de fotos borradas se conservan en `data/uploads/` por ese mismo motivo.
@@ -172,6 +194,7 @@ pytest
   (Nominatim/OSRM), `images.py` (Wikidata/Commons), `enrich.py` (un paso de trabajo por
   llamada), `export.py` (HTML autónomo y ZIP Obsidian), `routes.py` (API `/api/*`),
   `audit.py` (sesiones y diario de cambios), `admin.py` (API `/api/admin/*`: deshacer, copias).
+  El itinerario son dos tablas (`trip_days`, `day_items`) y su API `/api/days/*` y `/api/items/*`.
 - `static/index.html` — todo el frontend (CSS y JS inline, sin build). El mismo archivo es
   la base del export HTML: el servidor solo le inyecta los datos en `<!--ARCHTRIP_DATA-->`.
 - La base de datos se crea sola al arrancar; `ARCHTRIP_DB` cambia su ruta.
