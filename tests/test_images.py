@@ -144,3 +144,56 @@ def test_far_namesake_is_rejected_even_if_it_looks_like_a_building(monkeypatch):
     monkeypatch.setattr(images, "_get", get)
     assert images.wikidata_lookup("St. Anselm Church", 35.68, 139.76) is None     # Tokyo landmark, UK entity
     assert images.wikidata_lookup("St. Anselm Church")["id"] == "Q7"             # nothing known: accepted
+
+
+def test_entities_that_are_not_buildings_are_rejected(monkeypatch):
+    """Casos reales que colaron fotos absurdas: la revista House & Garden para 'Garden & House',
+    el artículo 'casa' para 'House NA', el emperador Go-Kōmyō para 'Kōmyō-in' y el análisis de
+    series temporales para TIME'S. Ninguna de esas fichas tiene coordenadas."""
+    hits = {
+        "Garden & House": [{"id": "Q1", "label": "House & Garden", "description": "American magazine"}],
+        "House NA": [{"id": "Q2", "label": "casa", "description": "building for human habitation"}],
+        "Kōmyō-in": [{"id": "Q3", "label": "Emperor Go-Kōmyō", "description": "Emperor of Japan"}],
+        "TIME'S": [{"id": "Q4", "label": "time series analysis", "description": "statistical technique"}],
+        "Musashino Place": [{"id": "Q5", "label": "Musashino Place", "description": "public facility in Tokyo"}],
+    }
+
+    def get(url, params):
+        if params.get("action") == "wbsearchentities":
+            return {"search": hits.get(params["search"], [])}
+        if params.get("list") == "search":
+            return {"query": {"search": []}}
+        if params.get("action") == "wbgetentities":
+            return {"entities": {q: _wd(image=q + ".jpg") for q in params["ids"].split("|")}}   # sin coordenadas
+        raise AssertionError(params)
+
+    monkeypatch.setattr(images, "_get", get)
+    for name in ("Garden & House", "House NA", "Kōmyō-in", "TIME'S"):
+        assert images.wikidata_lookup(name) is None, name
+    # y lo que sí coincide palabra por palabra sigue pasando
+    assert images.wikidata_lookup("Musashino Place")["id"] == "Q5"
+
+
+def test_city_nearby_is_not_the_building_but_a_district_landmark_is(monkeypatch):
+    """La ficha de la ciudad cae al lado de todos sus edificios; solo vale si se llama igual
+    que el hito, que es el caso de los barrios que sí son el hito (Gion, Higashi Chaya)."""
+    hits = {
+        "Musashino Place": [{"id": "Q1", "label": "Musashino", "description": "city in Tokyo, Japan"}],
+        "Higashi Chaya District": [{"id": "Q2", "label": "Higashichaya", "description": "neighborhood in Kanazawa, Japan"}],
+        "Casa de Serralves": [{"id": "Q3", "label": "Casa de Serralves", "description": "building in Porto, Porto District, Portugal"}],
+    }
+
+    def get(url, params):
+        if params.get("action") == "wbsearchentities":
+            return {"search": hits.get(params["search"], [])}
+        if params.get("list") == "search":
+            return {"query": {"search": []}}
+        if params.get("action") == "wbgetentities":
+            return {"entities": {q: _wd(lat=35.70, lon=139.54, image=q + ".jpg") for q in params["ids"].split("|")}}
+        raise AssertionError(params)
+
+    monkeypatch.setattr(images, "_get", get)
+    assert images.wikidata_lookup("Musashino Place", 35.70, 139.54) is None
+    assert images.wikidata_lookup("Higashi Chaya District", 35.70, 139.54)["id"] == "Q2"
+    # el distrito de la dirección no convierte un edificio en un barrio
+    assert images.wikidata_lookup("Casa de Serralves", 35.70, 139.54)["id"] == "Q3"

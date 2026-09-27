@@ -10,6 +10,8 @@ import threading
 import time
 from urllib.parse import quote
 
+import unicodedata
+
 import requests
 
 from .geo import haversine_km
@@ -30,12 +32,20 @@ DRAWING_WORDS = re.compile(
     r"\b(plan|plans|section|elevation|drawing|sketch|diagram|floor ?plan|layout|axonometr\w*|"
     r"isometr\w*|blueprint|grundriss|schnitt|ansicht|planta|secci[oó]n|alzado|plano|croquis)\b"
     r"|平面|断面|立面|図面|配置|見取", re.I)
+# descripciones que delatan que la ficha no es un edificio: obras, publicaciones, conceptos
 BAD_HIT = re.compile(r"exhibition|album|song|single|film|novel|painting|metro station|railway station|"
-                     r"subway station|train station|disambiguation|family name|given name|surname", re.I)
+                     r"subway station|train station|disambiguation|family name|given name|surname|"
+                     r"magazine|periodical|journal|newspaper|encyclopedia|manga|anime|video game|"
+                     r"concept|term for|unit of|type of", re.I)
+# oficios y cargos: descartan la ficha solo si además no suena a edificio, porque la descripción
+# de un edificio suele nombrar a su autor ("villa by architect X")
+PERSON_WORDS = re.compile(r"\b(architect|emperor|empress|politician|writer|poet|novelist|photographer|"
+                          r"monk|samurai|actor|actress|musician|composer|painter|designer|scientist|"
+                          r"engineer|businessman|daimyo|shogun)\b", re.I)
 BUILDING_WORDS = re.compile(
     r"building|museum|temple|shrine|church|cathedral|tower|station|hall|house|villa|castle|library|"
     r"theat(re|er)|stadium|gymnasium|arena|park|garden|hotel|store|shop|school|university|college|"
-    r"skyscraper|architect|structure|bridge|palace|complex|cent(re|er)|gallery|monastery|pagoda|"
+    r"skyscraper|architectur\w*|structure|bridge|palace|complex|cent(re|er)|gallery|monastery|pagoda|"
     r"residence|mansion|apartment|office|headquarters|terminal|airport|market|plaza|pavilion|"
     r"chapel|mosque|synagogue|monument|memorial|kindergarten|factory|mill|warehouse|bank|club|"
     r"district|quarter|village|neighbo(u)?rhood|street|site|ruins|observatory|planetarium|aquarium", re.I)
@@ -119,18 +129,74 @@ def core_name(name):
 def _search_labels(query, lang):
     data = _get(WIKIDATA_API, {"action": "wbsearchentities", "search": query, "language": lang,
                                "uselang": "en", "type": "item", "limit": 5})
-    return [{"id": h["id"], "description": h.get("description", "") or ""} for h in data.get("search", [])]
+    return [{"id": h["id"], "label": h.get("label", "") or "", "description": h.get("description", "") or ""}
+            for h in data.get("search", [])]
 
 
 def _search_fulltext(query):
     data = _get(WIKIDATA_API, {"action": "query", "list": "search", "srsearch": query, "srlimit": 5})
-    return [{"id": h["title"], "description": re.sub(r"<[^>]+>", "", h.get("snippet", "") or "")}
+    # la búsqueda a texto completo no da etiqueta: el fragmento hace las veces
+    return [{"id": h["title"], "label": re.sub(r"<[^>]+>", "", h.get("snippet", "") or ""),
+             "description": re.sub(r"<[^>]+>", "", h.get("snippet", "") or "")}
             for h in data.get("query", {}).get("search", []) if h.get("title", "").startswith("Q")]
 
 
-def _pick(hits, lat, lon, strict):
-    """Choose the hit that is geographically plausible and looks like a place."""
-    hits = [h for h in hits if not BAD_HIT.search(h["description"])][:4]
+def _fold(text):
+    """minúsculas y sin tildes, para comparar nombres"""
+    text = unicodedata.normalize("NFD", str(text or ""))
+    return "".join(c for c in text if not unicodedata.combining(c)).lower()
+
+
+# "ciudad de X" no es el edificio aunque caiga al lado. Las descripciones de Wikidata empiezan
+# por el tipo ("neighborhood in Kyoto"), así que se ancla al principio: "building in Porto,
+# Porto District, Portugal" no es un barrio, solo lleva el distrito en la dirección.
+ADMIN_AREA = re.compile(r"^\W*(former\s+|the\s+)*(city|town|village|municipality|ward|prefecture|district|"
+                        r"neighbo(u)?rhood|county|region|island|mountain|river)\b\s*(in|of|,|$)", re.I)
+
+
+def _words(text):
+    """palabras significativas, sin lo que va entre paréntesis"""
+    text = re.sub(r"\s*\([^)]*\)", " ", str(text or ""))
+    return [t for t in re.findall(r"[a-z0-9]+", _fold(text)) if len(t) >= 3]
+
+
+# "Higashi Chaya District" y "Higashichaya" son el mismo barrio; "Musashino" y "Musashino Place", no
+PLACE_CATEGORY = {"district", "distrito", "barrio", "quarter", "neighborhood", "neighbourhood", "area", "zona"}
+
+
+def _same_place(label, name):
+    """Mismo sitio escrito de otra forma: junto o separado, con o sin la coletilla del tipo."""
+    glue = lambda words: "".join(w for w in words if w not in PLACE_CATEGORY)
+    return bool(glue(_words(name))) and glue(_words(name)) == glue(_words(label))
+
+
+def _label_covers(label, name):
+    """¿La etiqueta de Wikidata dice lo mismo que el nombre del hito?
+
+    El nombre tiene que aparecer entero y seguido dentro de la etiqueta (o al revés, pegado todo,
+    que es como se transcribe del japonés: "Higashichaya" ↔ "Higashi Chaya"); si además el nombre
+    es de una sola palabra, la etiqueta no puede añadir nada distintivo. Sin este control "Garden
+    & House" acaba en la revista, "House NA" en el artículo "casa" y TIME'S en el análisis de
+    series temporales; con él, "Musashino Place Stadtbibliothek" sigue valiendo."""
+    keys, lab = _words(name), _words(label)
+    if not keys or not lab:
+        return False
+    run = any(lab[i:i + len(keys)] == keys for i in range(len(lab) - len(keys) + 1))
+    glued = "".join(keys) in "".join(lab) or "".join(lab) in "".join(keys)
+    if not (run or glued):
+        return False
+    return len(keys) >= 2 or not (set(lab) - set(keys) - GENERIC_WORDS)
+
+
+def _pick(hits, lat, lon, strict, name=""):
+    """Elige la ficha de Wikidata que de verdad puede ser este hito.
+
+    Vale si cae cerca y, o bien se llama igual, o al menos está descrita como un lugar; si nada
+    tiene coordenadas que lo corroboren, solo vale que se llame igual. Sin esa segunda regla la
+    búsqueda se queda con lo primero que tenga foto: la revista House & Garden, el artículo
+    "casa" o el emperador Go-Kōmyō."""
+    hits = [h for h in hits if not BAD_HIT.search(h["description"])
+            and not (PERSON_WORDS.search(h["description"]) and not BUILDING_WORDS.search(h["description"]))][:4]
     if not hits:
         return None
     ents = _get(WIKIDATA_API, {"action": "wbgetentities", "ids": "|".join(h["id"] for h in hits),
@@ -140,18 +206,27 @@ def _pick(hits, lat, lon, strict):
     placey = lambda h: bool(BUILDING_WORDS.search(h["description"]))
     if lat is not None:   # an entity that sits far from where the landmark is cannot be it (namesakes abroad)
         infos = [(h, info) for h, info in infos if info["lat"] is None or near(info)]
-    if strict:   # last resort: must be near AND described as a place
+    if strict:   # último recurso: cerca, descrita como lugar y sin que sea el barrio o la ciudad
         for h, info in infos:
-            if near(info) and placey(h):
+            if near(info) and placey(h) and not ADMIN_AREA.search(h["description"]):
                 return info
         return None
-    for h, info in infos:      # 1) near where we think the landmark is
-        if near(info):
-            return info
-    for h, info in infos:      # 2) described as a place
+    for h, info in infos:      # 1) cerca del hito y, o se llama igual, o suena a lugar
+        if not near(info):
+            continue
+        if ADMIN_AREA.search(h["description"]):
+            # el barrio o la ciudad donde está un edificio no son el edificio; solo valen cuando
+            # el hito es el propio barrio (mismo nombre, o el profesor lo llamó "… (barrio)")
+            if _same_place(h.get("label"), name) or set(_words(name)) & PLACE_CATEGORY:
+                return info
+            continue
+        return info
+    # sin coordenadas que confirmen nada, la etiqueta tiene que traer todas las palabras del nombre
+    named = [(h, info) for h, info in infos if _label_covers(h.get("label"), name)]
+    for h, info in named:      # 2) además, descrita como un lugar
         if placey(h):
             return info
-    for h, info in infos:      # 3) something with pictures and no coordinates to contradict
+    for h, info in named:      # 3) o al menos con fotos y sin coordenadas que la contradigan
         if info["lat"] is None and (info["image"] or info["category"]):
             return info
     return None
@@ -160,16 +235,17 @@ def _pick(hits, lat, lon, strict):
 def wikidata_lookup(name, lat=None, lon=None):
     """-> entity info dict or None. Label search (English, then Spanish), then full-text
     search, then the distinctive part of the name with strict checks."""
+    plain = re.sub(r"\s*\([^)]*\)", "", name).strip() or name   # "Gion (barrio)" -> "Gion"
     for lang in ("en", "es"):   # professors write names in Spanish or English
-        info = _pick(_search_labels(name, lang), lat, lon, strict=False)
+        info = _pick(_search_labels(plain, lang), lat, lon, strict=False, name=name)
         if info:
             return info
-    info = _pick(_search_fulltext(name), lat, lon, strict=False)
+    info = _pick(_search_fulltext(plain), lat, lon, strict=False, name=name)
     if info:
         return info
     core = core_name(name)
     if core:
-        return _pick(_search_labels(core, "en"), lat, lon, strict=True)
+        return _pick(_search_labels(core, "en"), lat, lon, strict=True, name=core)
     return None
 
 
