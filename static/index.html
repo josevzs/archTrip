@@ -323,6 +323,7 @@
     filter: 'todos', query: '', editing: null, msg: null, view: VIEWS[savedView] ? savedView : 'fotos',
     newMode: null, promptText: null,
     detail: null, detailImg: 0, addingImage: false, picker: null, activeDay: null, dayMode: savedDayMode === '1',
+    pdf: null,          // { done, total, phase, cancel } mientras se prepara el PDF con fotos
     hideRejected: savedHide === '1', skipRejected: savedSkip === '1',
     enrich: { running: false, remaining: 0, error: null },
     admin: { authed: null, sessions: [], open: null, changes: [], query: '', history: null, backups: [], busy: false, note: null },
@@ -444,6 +445,7 @@
     patchItem: (id, fields) => call('PATCH', '/api/items/' + id, fields),
     deleteItem: (id) => call('DELETE', '/api/items/' + id),
     orderItems: (dayId, ids) => call('PUT', '/api/days/' + dayId + '/items/order', { ids }),
+    photoNext: (tripId) => call('POST', '/api/trips/' + tripId + '/export/itinerario/fotos/next'),
   };
 
   // Standalone copy: data embedded in the file, edits overlaid from localStorage.
@@ -1001,11 +1003,59 @@
       + (state.picker && state.picker.dayId === day.id ? pickerView(day) : '') + foot + '</section>';
   }
 
+  // El PDF con fotos tarda (baja una a una las fotos de Commons): se ve el avance y se puede parar.
+  function pdfProgressView() {
+    const p = state.pdf;
+    if (!p) return '';
+    if (p.error) return '<div class="msg err">' + esc(p.error) + ' <button class="link" data-action="pdf-dismiss">cerrar</button></div>';
+    const pct = p.total ? Math.max(3, Math.round(100 * p.done / p.total)) : 100;
+    const what = p.phase === 'fotos'
+      ? 'Descargando fotos para el PDF… ' + p.done + ' de ' + p.total + ' (solo la primera vez: se guardan para las siguientes)'
+      : 'Generando el PDF…';
+    return '<div class="progress">' + what
+      + ' <button class="link" data-action="pdf-cancel">cancelar</button>'
+      + '<div class="bar"><i style="width:' + pct + '%"></i></div></div>';
+  }
+
+  async function downloadPhotoPdf() {
+    if (state.pdf) return;
+    state.pdf = { done: 0, total: 0, phase: 'fotos', cancel: false };
+    renderList();
+    try {
+      for (let i = 0; i < 2000; i++) {
+        const r = await store.photoNext(state.trip.id);
+        if (state.pdf.cancel) { state.pdf = null; renderList(); return; }
+        state.pdf.total = r.total;
+        state.pdf.done = r.total - r.remaining;
+        renderList();
+        if (r.done) break;
+      }
+      state.pdf.phase = 'pdf';
+      renderList();
+      const res = await fetch('/api/trips/' + state.trip.id + '/export/itinerario?fotos=1');
+      if (!res.ok) throw new Error('El servidor no ha podido generar el PDF (' + res.status + ')');
+      const blob = await res.blob();
+      if (state.pdf.cancel) { state.pdf = null; renderList(); return; }
+      const name = (res.headers.get('Content-Disposition') || '').match(/filename=([^;]+)/);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name ? name[1].trim() : 'itinerario-fotos.pdf';
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      state.pdf = null;
+    } catch (e) {
+      state.pdf = { error: e.message || 'No se ha podido preparar el PDF', done: 0, total: 0 };
+    }
+    renderList();
+  }
+
   function itineraryView() {
     const bar = STANDALONE ? ''
       : '<div class="itinbar"><button data-action="day-add">＋ Añadir día</button>'
         + '<a class="btn quiet" href="/api/trips/' + state.trip.id + '/export/itinerario" download title="Un PDF día a día, listo para imprimir o mandar">⬇ PDF día a día</a>'
-        + '<a class="btn quiet" href="/api/trips/' + state.trip.id + '/export/itinerario?fotos=1" download title="El mismo itinerario con la foto de cada hito: tarda un poco más porque las descarga">⬇ PDF con fotos</a></div>'
+        + '<button class="quiet" data-action="pdf-fotos" title="El mismo itinerario con la foto de cada hito. La primera vez tarda: hay que descargar cada foto."'
+        + (state.pdf ? ' disabled' : '') + '>⬇ PDF con fotos</button></div>'
+        + pdfProgressView()
         + '<div class="muted small" style="margin:0 0 14px">Cada día lleva fecha, ciudad base y sus hitos con hora; arrastra ⠿ para ordenarlos o pasarlos a otro día. '
         + 'El punto de color dice cómo está curado cada hito (<span style="color:' + COLORS.curado + '">fijo</span>, '
         + '<span style="color:' + COLORS.posible + '">opcional</span>…) y ⏳ lo marca como pendiente de permiso o confirmación.</div>';
@@ -1677,6 +1727,9 @@
       }, 0);
     }),
     'item-delete': (el) => dayDo(async () => { applyDay(await store.deleteItem(Number(el.dataset.id))); }),
+    'pdf-fotos': () => downloadPhotoPdf(),
+    'pdf-cancel': () => { if (state.pdf) state.pdf.cancel = true; },
+    'pdf-dismiss': () => { state.pdf = null; renderList(); },
     'item-confirm': (el) => dayDo(async () => {
       const id = Number(el.dataset.id);
       const it = state.days.reduce((f, d) => f || (d.items || []).find((x) => x.id === id), null);

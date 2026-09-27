@@ -116,8 +116,11 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
      tampoco borra sus hitos.
 6. **Exportar**:
    - **Itinerario (PDF)**, en dos versiones: **día a día** (compacto, para imprimir o mandar a
-     los alumnos) y **con fotos** (el mismo, con la foto de cada hito al lado; tarda algo más
-     porque las descarga). Los dos llevan las horas, el arquitecto y el edificio, ciudad, año,
+     los alumnos) y **con fotos** (el mismo, con la foto de cada hito al lado). El de fotos
+     avisa de lo que está haciendo: primero descarga las que falten, de una en una y con barra
+     de progreso —«Descargando fotos para el PDF… 7 de 34», con botón de cancelar—, y después
+     genera el documento. Las fotos quedan guardadas en `data/cache/photos`, así que la segunda
+     vez sale al momento. Esa carpeta es desechable: se puede borrar y se vuelve a llenar sola. Los dos llevan las horas, el arquitecto y el edificio, ciudad, año,
      tiempo en coche desde la base, las notas, la etiqueta de curado (*fijo* / *opcional*) y el
      aviso de *pendiente de confirmar*, con su leyenda arriba. No llevan la barra de créditos de
      la aplicación: solo un pie discreto de «generado con el sistema archTrip el …» y la paginación.

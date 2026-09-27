@@ -281,3 +281,60 @@ def test_gallery_pdf_carries_the_photos(client, fake_geo, monkeypatch):
     # la que falla no rompe el documento: sigue teniendo el texto de los dos hitos
     text = pdf_text(gallery.data)
     assert "Casa da Música" in text and "Museo de Serralves" in text
+
+
+def test_photos_are_prefetched_one_by_one_and_cached_on_disk(client, fake_geo, monkeypatch, app):
+    """El frontend baja las fotos de una en una para poder enseñar una barra de progreso;
+    quedan en disco, así que el PDF siguiente sale sin volver a salir a internet."""
+    import io as _io
+    from PIL import Image as PILImage
+    from archtrip import export
+
+    buf = _io.BytesIO()
+    PILImage.new("RGB", (200, 150), (70, 70, 70)).save(buf, "JPEG")
+
+    class Resp:
+        status_code = 200
+        content = buf.getvalue()
+
+    hits = []
+
+    def fake_get(url, **kw):
+        hits.append(url)
+        if "rota" in url:
+            raise RuntimeError("se cayó la descarga")
+        return Resp()
+
+    monkeypatch.setattr(export.requests, "get", fake_get)
+
+    tid = seed(client)
+    day = client.post(f"/api/trips/{tid}/days", json={"date": "2027-04-12"}).get_json()
+    a, b, c = trip(client, tid)["landmarks"]
+    client.patch(f"/api/landmarks/{a['id']}", json={"url_image1": "https://example.com/a.jpg"})
+    client.patch(f"/api/landmarks/{b['id']}", json={"url_image1": "https://example.com/rota.jpg"})
+    for lm in (a, b, c):
+        client.post(f"/api/days/{day['id']}/items", json={"landmark_id": lm["id"]})
+
+    steps = []
+    for _ in range(10):
+        r = client.post(f"/api/trips/{tid}/export/itinerario/fotos/next").get_json()
+        steps.append((r["total"], r["remaining"]))
+        if r["done"]:
+            break
+    assert steps == [(2, 1), (2, 0)]              # dos fotos, una por llamada
+    assert len(hits) == 2 and sorted(hits) == ["https://example.com/a.jpg", "https://example.com/rota.jpg"]
+
+    # ya está todo en caché: ni una descarga más, ni siquiera la que falló
+    again = client.post(f"/api/trips/{tid}/export/itinerario/fotos/next").get_json()
+    assert again == {"done": True, "remaining": 0, "total": 2, "url": None}
+    assert len(hits) == 2
+    with app.app_context():
+        files = list((__import__("pathlib").Path(app.config["DB_PATH"]).parent / "cache" / "photos").glob("*.img"))
+    assert len(files) == 2 and sum(1 for f in files if f.stat().st_size == 0) == 1   # la rota, vacía
+
+    def boom(url, **kw):
+        raise AssertionError("no debería volver a internet: " + url)
+
+    monkeypatch.setattr(export.requests, "get", boom)
+    gallery = client.get(f"/api/trips/{tid}/export/itinerario?fotos=1")
+    assert gallery.status_code == 200 and len(gallery.data) > len(client.get(f"/api/trips/{tid}/export/itinerario").data)

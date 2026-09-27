@@ -240,8 +240,23 @@ try {
   const gallery = await (await fetch(`${BASE}/api/trips/${TRIP}/export/itinerario?fotos=1`)).arrayBuffer();
   check('y hay una segunda descarga con las fotos', gallery.byteLength > pdf.byteLength + 5000,
     pdf.byteLength + ' -> ' + gallery.byteLength);
-  check('los dos botones están en la vista', (await evaluate(`(() => { document.querySelector('[data-action="view"][data-view="itinerario"]').click(); return document.body.textContent; })()`)).includes('PDF día a día')
+  await evaluate(`document.querySelector('[data-action="view"][data-view="itinerario"]').click()`); await sleep(700);
+  check('los dos botones están en la vista', (await evaluate('document.body.textContent')).includes('PDF día a día')
     && (await evaluate('document.body.textContent')).includes('PDF con fotos'));
+
+  // el PDF con fotos avisa de que está trabajando (aunque con la caché caliente dure un suspiro)
+  await evaluate(`(() => {
+      window.__progreso = [];
+      new MutationObserver(() => {
+        const p = document.querySelector('.progress');
+        if (p) window.__progreso.push(p.textContent.slice(0, 40));
+      }).observe(document.getElementById('list'), { childList: true, subtree: true });
+      document.querySelector('[data-action="pdf-fotos"]').click();
+    })()`);
+  await sleep(4000);
+  const pasos = await evaluate(`JSON.stringify(window.__progreso || [])`);
+  check('mientras se prepara, la interfaz lo dice', /Descargando fotos|Generando el PDF/.test(pasos), pasos.slice(0, 160));
+  check('y al terminar desaparece sin errores', await evaluate(count('.progress')) === 0 && await evaluate(count('#list .msg.err')) === 0);
 
   // ---- borrar un día
   await goto(`${BASE}/#/viaje/${TRIP}`, 2500);

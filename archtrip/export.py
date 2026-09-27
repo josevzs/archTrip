@@ -1,6 +1,7 @@
 """Exports: a standalone single-file HTML copy, a printable itinerary in PDF, and an Obsidian
 Bases vault folder as ZIP."""
 import base64
+import hashlib
 import io
 import json
 import os
@@ -352,9 +353,48 @@ def itinerary_rows(payload):
     return out
 
 
-def photo_bytes(url, cache):
-    """La miniatura de un hito: de disco si la subió el profesor, si no de internet.
-    Devuelve None y sigue adelante si falla: un itinerario sin una foto se imprime igual."""
+# Las fotos del itinerario viven en Commons: bajarlas es lo que hace lento el PDF con fotos,
+# así que se guardan en disco (data/cache/photos) y el frontend las va pidiendo de una en una
+# con barra de progreso antes de descargar el documento.
+PHOTO_CACHE_MAX = 3000          # archivos; al pasarse se tiran los más viejos
+
+
+def photo_cache_dir():
+    from flask import current_app
+    path = Path(current_app.config["DB_PATH"]).parent / "cache" / "photos"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _cache_file(url):
+    return photo_cache_dir() / (hashlib.sha1(url.encode("utf-8")).hexdigest() + ".img")
+
+
+def photo_cached(url):
+    """¿Está ya disponible sin salir a internet? (las subidas a mano siempre lo están)"""
+    if not url:
+        return True
+    if url.startswith("/uploads/"):
+        return True
+    try:
+        return _cache_file(url).exists()
+    except Exception:
+        return False
+
+
+def _trim_cache():
+    try:
+        files = sorted(photo_cache_dir().glob("*.img"), key=lambda f: f.stat().st_mtime)
+        for old in files[:max(0, len(files) - PHOTO_CACHE_MAX)]:
+            old.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def photo_bytes(url, cache, fetch=True):
+    """La miniatura de un hito: de las subidas a mano, de la caché en disco o de internet.
+    Devuelve None y sigue adelante si falla: un itinerario sin una foto se imprime igual.
+    Una descarga fallida deja el archivo vacío, para no reintentarla en cada documento."""
     if not url or url in cache:
         return cache.get(url)
     data = None
@@ -362,13 +402,38 @@ def photo_bytes(url, cache):
         from . import uploads
         data = uploads.read_file(url)
         if data is None and url.startswith(("http://", "https://")):
-            from .images import USER_AGENT
-            resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=15)
-            data = resp.content if resp.status_code == 200 and resp.content[:2] not in (b"<!", b"<h") else None
+            path = _cache_file(url)
+            if path.exists():
+                data = path.read_bytes() or None
+            elif fetch:
+                data = _download(url)
+                path.write_bytes(data or b"")     # vacío = ya se intentó y no había foto
+                _trim_cache()
     except Exception:
         data = None
     cache[url] = data
     return data
+
+
+def _download(url):
+    try:
+        from .images import USER_AGENT
+        resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=20)
+        if resp.status_code == 200 and resp.content[:2] not in (b"<!", b"<h"):
+            return resp.content
+    except Exception:
+        pass
+    return None
+
+
+def itinerary_photo_urls(payload):
+    """Las fotos que saldrían en el PDF con fotos, en orden y sin repetir."""
+    urls = []
+    for day in itinerary_rows(payload):
+        for row in day["items"]:
+            if row["photo"] and row["photo"] not in urls:
+                urls.append(row["photo"])
+    return urls
 
 
 def _photo_flowable(url, cache, width, height):

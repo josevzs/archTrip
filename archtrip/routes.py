@@ -689,6 +689,21 @@ def export_itinerary(trip_id):
                      as_attachment=True, download_name=filename)
 
 
+@api.post("/trips/<int:trip_id>/export/itinerario/fotos/next")
+def itinerary_photo_next(trip_id):
+    """Baja UNA foto del itinerario y dice cuántas quedan, para que el frontend pueda enseñar
+    una barra de progreso antes de pedir el PDF (que entonces sale al momento)."""
+    db = get_db()
+    trip = _trip_or_404(db, trip_id)
+    urls = export.itinerary_photo_urls(_trip_payload(db, trip))
+    pending = [u for u in urls if not export.photo_cached(u)]
+    if not pending:
+        return jsonify({"done": True, "remaining": 0, "total": len(urls), "url": None})
+    export.photo_bytes(pending[0], {})
+    return jsonify({"done": len(pending) == 1, "remaining": len(pending) - 1,
+                    "total": len(urls), "url": pending[0]})
+
+
 @api.get("/trips/<int:trip_id>/export/obsidian")
 def export_obsidian(trip_id):
     db = get_db()
