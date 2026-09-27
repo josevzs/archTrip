@@ -436,14 +436,34 @@ def itinerary_photo_urls(payload):
     return urls
 
 
+def _pdf_thumb(raw, box_px=420):
+    """Las fotos de Commons vienen a 960 px: incrustarlas tal cual hace un PDF de decenas de
+    megas y tarda minutos. Se reducen al tamaño al que se imprimen (con margen para el papel)."""
+    from PIL import Image as PILImage
+    img = PILImage.open(io.BytesIO(raw))
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    img.thumbnail((box_px, box_px), PILImage.LANCZOS)
+    out = io.BytesIO()
+    img.save(out, "JPEG", quality=72, optimize=True)
+    return out.getvalue()
+
+
 def _photo_flowable(url, cache, width, height):
     raw = photo_bytes(url, cache)
     if not raw:
         return None
+    key = url + "#pdf"
+    if key not in cache:
+        try:
+            cache[key] = _pdf_thumb(raw)
+        except Exception:
+            cache[key] = raw
+    small = cache[key]
     try:
-        w, h = ImageReader(io.BytesIO(raw)).getSize()      # solo para medirla
+        w, h = ImageReader(io.BytesIO(small)).getSize()      # solo para medirla
         scale = min(width / w, height / h)
-        return Image(io.BytesIO(raw), width=w * scale, height=h * scale)
+        return Image(io.BytesIO(small), width=w * scale, height=h * scale)
     except Exception:
         return None
 
