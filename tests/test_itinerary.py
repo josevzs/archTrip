@@ -254,7 +254,8 @@ def test_gallery_pdf_carries_the_photos(client, fake_geo, monkeypatch):
     from archtrip import export
 
     buf = _io.BytesIO()
-    PILImage.new("RGB", (240, 180), (90, 90, 90)).save(buf, "JPEG")
+    noise = PILImage.effect_noise((240, 180), 60).convert("RGB")     # que no comprima a nada
+    noise.save(buf, "JPEG")
     shot = buf.getvalue()
     asked = []
 
@@ -277,6 +278,8 @@ def test_gallery_pdf_carries_the_photos(client, fake_geo, monkeypatch):
     assert gallery.status_code == 200 and gallery.mimetype == "application/pdf"
     assert "itinerario-fotos-portugal-2027.pdf" in gallery.headers["Content-Disposition"]
     assert len(gallery.data) > len(plain.data) + 1000          # la foto va dentro
+    assert len(PdfReader(io.BytesIO(gallery.data)).pages[0].images) == 1      # la rota no, claro
+    assert not PdfReader(io.BytesIO(plain.data)).pages[0].images
     assert "https://example.com/foto.jpg" in asked
     # la que falla no rompe el documento: sigue teniendo el texto de los dos hitos
     text = pdf_text(gallery.data)
