@@ -142,11 +142,54 @@ try {
   check('la ficha dice en qué día está el hito', (await evaluate(text('#detail .dside'))).includes('En el itinerario: día'),
     (await evaluate(text('#detail .dside'))).slice(0, 140));
 
+  // ---- asignación rápida: barra de días + botón de un clic en fotos, mapa y ficha
+  await goto(`${BASE}/#/viaje/${TRIP}`, 2500);
+  check('la barra de días aparece fuera del itinerario', await evaluate(count('.daybar button[data-action="pick-day"]')) === 2,
+    await evaluate(count('.daybar button[data-action="pick-day"]')));
+  check('y no estorba dentro del itinerario', await evaluate(`(() => { document.querySelector('[data-action="view"][data-view="itinerario"]').click(); return document.querySelectorAll('.daybar button').length; })()`) === 0);
+  await evaluate(`document.querySelector('[data-action="view"][data-view="fotos"]').click()`); await sleep(700);
+  check('cada tarjeta ofrece meter el hito en el día activo', await evaluate(count('.card [data-action="toggle-day"]')) >= 3);
+  const activeChip = await evaluate(text('.daybar button.on'));
+  check('hay un día activo y la barra dice cuál', /^D\d/.test(activeChip)
+    && (await evaluate(text('.daybar'))).includes('＋ ' + activeChip.split(' ')[0] + ' en cada hito'), activeChip);
+
+  const dayOf = async () => (await (await fetch(`${BASE}/api/trips/${TRIP}`)).json()).days.find((d) => String(d.id) === days[0].id);
+  const dayItems = async () => (await dayOf()).items.length;
+  const dayHitos = async () => (await dayOf()).items.filter((it) => it.kind === 'hito').length;   // la barra cuenta hitos
+  const wasThere = await dayItems();
+  await evaluate(`(() => { const b = [...document.querySelectorAll('.card [data-action="toggle-day"]')].find(x => x.textContent.includes('＋')); b.click(); })()`); await sleep(1300);
+  check('un clic lo mete en el día', await dayItems() === wasThere + 1, wasThere + ' -> ' + await dayItems());
+  // (puede haber menos botones marcados que hitos del día: los descartados no se pintan)
+  check('el botón queda marcado y la barra actualiza la cuenta', await evaluate(count('.card [data-action="toggle-day"].on')) >= 1
+    && (await evaluate(text('.daybar button.on'))).includes('(' + (await dayHitos()) + ')'),
+    'botones marcados=' + (await evaluate(count('.card [data-action="toggle-day"].on'))) + ' hitos del día=' + (await dayHitos()) + ' chip=' + (await evaluate(text('.daybar button.on'))));
+  await evaluate(`document.querySelector('.card [data-action="toggle-day"].on').click()`); await sleep(1300);
+  check('y otro clic lo saca', await dayItems() === wasThere);
+
+  await evaluate(`document.querySelector('.daybar button[data-action="pick-day"]:not(.on)').click()`); await sleep(700);
+  const otherChip = await evaluate(text('.daybar button.on'));
+  check('se puede cambiar de día activo', otherChip !== activeChip, otherChip + ' vs ' + activeChip);
+  await evaluate(`[...document.querySelectorAll('.daybar button[data-action="pick-day"]')].find(b => b.textContent.startsWith(${JSON.stringify('')} + ${JSON.stringify('')} + b.textContent.slice(0,2)) && !b.classList.contains('on')).click()`); await sleep(700);
+
+  // el mismo botón en el popup del mapa
+  await evaluate(`document.querySelector('[data-action="view"][data-view="mapa"]').click()`); await sleep(4000);
+  // el primer .leaflet-interactive puede ser la línea de la ruta: se prueban todos hasta que abra una ficha
+  for (let i = 0; i < 6 && !(await evaluate(count('.leaflet-popup [data-action="toggle-day"]'))); i++) {
+    await evaluate(`(() => { const el = document.querySelectorAll('.leaflet-interactive')[${i}]; if (el) el.dispatchEvent(new MouseEvent('click', {bubbles:true})); })()`);
+    await sleep(900);
+  }
+  check('el popup del mapa también lo ofrece', await evaluate(count('.leaflet-popup [data-action="toggle-day"]')) === 1);
+  const mapBefore = await dayItems();
+  await evaluate(`document.querySelector('.leaflet-popup [data-action="toggle-day"]').click()`); await sleep(1400);
+  const mapAfter = await dayItems();
+  check('y asigna desde el mapa sin cerrar el popup', Math.abs(mapAfter - mapBefore) === 1 && await evaluate(count('.leaflet-popup')) === 1,
+    mapBefore + ' -> ' + mapAfter);
+
   // ---- export
-  const html = await (await fetch(`${BASE}/api/trips/${TRIP}/export/itinerario`)).text();
-  check('el itinerario descargable trae días, horas, notas y base', html.includes('lunes 12 de abril de 2027')
-    && html.includes('09:30') && html.includes('comida por la Ribeira') && html.includes('Base: Oporto') && html.includes('Oporto a pie'),
-    html.slice(0, 200));
+  const pdf = await (await fetch(`${BASE}/api/trips/${TRIP}/export/itinerario`)).arrayBuffer();
+  const head = new TextDecoder().decode(new Uint8Array(pdf).slice(0, 5));
+  check('el itinerario se descarga como PDF', head === '%PDF-' && pdf.byteLength > 2000, head + ' ' + pdf.byteLength);
+  check('y el botón dice que es un PDF', (await evaluate(`(() => { document.querySelector('[data-action="view"][data-view="itinerario"]').click(); return document.body.textContent; })()`)).includes('Descargar itinerario (PDF)'));
 
   // ---- borrar un día
   await goto(`${BASE}/#/viaje/${TRIP}`, 2500);

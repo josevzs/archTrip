@@ -1,12 +1,25 @@
-"""Exports: a standalone single-file HTML copy, and an Obsidian Bases vault folder as ZIP."""
+"""Exports: a standalone single-file HTML copy, a printable itinerary in PDF, and an Obsidian
+Bases vault folder as ZIP."""
 import base64
 import io
 import json
+import os
 import re
 import unicodedata
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+import reportlab
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
+from reportlab.platypus import (HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer,
+                                Table, TableStyle)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 DATA_MARKER = "<!--ARCHTRIP_DATA-->"
@@ -236,29 +249,13 @@ WEEKDAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "do
 MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
           "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
 
-ITINERARY_CSS = """
-  :root { --ink:#111; --muted:#666; --line:#d8d8d8; --soft:#f4f4f4; }
-  * { box-sizing: border-box; }
-  body { font-family: "Courier New", Courier, monospace; color: var(--ink); background: #fff;
-         margin: 0 auto; max-width: 820px; padding: 32px 28px 60px; line-height: 1.45; }
-  h1 { font-size: 22px; letter-spacing: 1px; text-transform: uppercase; margin: 0 0 4px; }
-  .sub { color: var(--muted); font-size: 13px; margin-bottom: 26px; }
-  .day { border-top: 2px solid var(--ink); margin-top: 26px; padding-top: 10px; page-break-inside: avoid; }
-  .day h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 1px; margin: 0; }
-  .day .where { color: var(--muted); font-size: 13px; margin: 2px 0 10px; }
-  .day .daynote { background: var(--soft); padding: 6px 10px; font-size: 13px; margin-bottom: 10px; white-space: pre-wrap; }
-  table { border-collapse: collapse; width: 100%; }
-  td { vertical-align: top; padding: 5px 6px; border-bottom: 1px solid var(--line); }
-  td.t { width: 58px; color: var(--muted); white-space: nowrap; }
-  .arch { text-transform: uppercase; font-weight: bold; }
-  .meta { color: var(--muted); font-size: 12px; }
-  .note { font-style: italic; white-space: pre-wrap; }
-  a { color: var(--ink); }
-  .empty { color: var(--muted); font-style: italic; padding: 6px 0; }
-  .foot { margin-top: 40px; border-top: 1px solid var(--line); padding-top: 8px;
-          color: var(--muted); font-size: 11px; display: flex; gap: 14px; flex-wrap: wrap; }
-  @media print { body { padding: 0 6mm; max-width: none; } .day { border-top-width: 1px; } a { text-decoration: none; } }
-"""
+# Un PDF para imprimir y repartir: sin barra de créditos, solo el pie de "generado con".
+PDF_FONTS = [                                   # primer archivo que exista, en este orden
+    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",      # Docker (fonts-dejavu-core)
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "C:/Windows/Fonts/consola.ttf", "C:/Windows/Fonts/cour.ttf",
+]
+PAGE_MARGIN = 18 * mm
 
 
 def pretty_date(value):
@@ -270,79 +267,171 @@ def pretty_date(value):
     return f"{WEEKDAYS[d.weekday()]} {d.day} de {MONTHS[d.month - 1]} de {d.year}"
 
 
-def _itinerary_item(item, landmarks, stops):
-    time = f'<td class="t">{_esc(item.get("at_time") or "")}</td>'
-    if item["kind"] == "nota":
-        return f'<tr>{time}<td class="note">{_esc(item.get("text"))}</td></tr>'
-    lm = landmarks.get(item.get("landmark_id"))
-    if lm is None:
-        return f'<tr>{time}<td class="muted">hito eliminado</td></tr>'
-    bits = [lm["city"]]
-    if lm.get("year"):
-        bits.append(str(lm["year"]))
-    if lm.get("address"):
-        bits.append(lm["address"])
-    minutes = lm.get("drive_minutes")
-    stop = stops.get(lm.get("nearest_stop_id"))
-    if minutes is not None and stop:
-        approx = "≈" if lm.get("drive_source") == "estimado" else ""
-        bits.append(f"{approx}{round(minutes)} min en coche desde {stop['city']}")
-    links = []
-    if lm.get("lat") is not None:
-        links.append(f'<a href="https://www.google.com/maps/search/?api=1&query={lm["lat"]},{lm["lon"]}">mapa</a>')
-    for label, key in (("ArchDaily", "url_archdaily"), ("Arquitectura Viva", "url_av"), ("Wikipedia", "wikipedia_url")):
-        if lm.get(key):
-            links.append(f'<a href="{_esc(lm[key])}">{label}</a>')
-    meta = " · ".join(bits) + (" · " + " · ".join(links) if links else "")
-    notes = f'<div class="meta">{_esc(lm["notes"])}</div>' if lm.get("notes") else ""
-    return (f'<tr>{time}<td><span class="arch">{_esc(lm["architect"])}</span> — {_esc(lm["name"])}'
-            f'<div class="meta">{meta}</div>{notes}</td></tr>')
+def today_long():
+    d = datetime.now()
+    return f"{d.day} de {MONTHS[d.month - 1]} de {d.year}"
 
 
 def _esc(value):
     return (str(value if value is not None else "")
-            .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))
+            .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
 
-def itinerary_html(payload):
-    """-> (html, filename). A printable day-by-day itinerary (print to PDF from the browser)."""
-    trip, days = payload["trip"], payload.get("days") or []
+def _mono_font():
+    """Courier del sistema con tildes y macrones; si no hay ninguno, el Courier básico del PDF
+    (que solo llega a Latin-1, así que ahí se quitan los acentos raros)."""
+    for path in [os.environ.get("ARCHTRIP_PDF_FONT")] + PDF_FONTS:
+        if path and Path(path).exists():
+            try:
+                pdfmetrics.registerFont(TTFont("archtrip-mono", path))
+                return "archtrip-mono", True
+            except Exception:
+                continue
+    try:                       # el que trae reportlab: vale, pero sin macrones
+        pdfmetrics.registerFont(TTFont("archtrip-mono", str(Path(reportlab.__file__).parent / "fonts" / "Vera.ttf")))
+        return "archtrip-mono", False
+    except Exception:
+        return "Courier", False
+
+
+def _latin1(text):
+    """Quita lo que no entra en Latin-1 conservando la letra: Hōryū -> Horyu."""
+    out = unicodedata.normalize("NFKD", text)
+    out = "".join(c for c in out if not unicodedata.combining(c))
+    return out.encode("latin-1", "replace").decode("latin-1")
+
+
+def itinerary_rows(payload):
+    """El itinerario como texto, listo para pintar (y fácil de comprobar en los tests):
+    [{'head':…, 'base':…, 'notes':…, 'items':[(hora, línea, detalle)]}]"""
+    days = payload.get("days") or []
     landmarks = {lm["id"]: lm for lm in payload["landmarks"]}
     stops = {s["id"]: s for s in payload["stops"]}
-    dated = [d["date"] for d in days if d.get("date")]
-    span = ""
-    if dated:
-        span = pretty_date(min(dated)) + (f" — {pretty_date(max(dated))}" if min(dated) != max(dated) else "")
-    parts = []
+    out = []
     for n, day in enumerate(days, start=1):
         head = f"Día {n}" + (f" · {pretty_date(day['date'])}" if day.get("date") else "")
         if day.get("title"):
             head += f" · {day['title']}"
-        where = day.get("stop_city") or (stops.get(day.get("stop_id")) or {}).get("city")
-        items = day.get("items") or []
-        body = ("<table>" + "".join(_itinerary_item(it, landmarks, stops) for it in items) + "</table>"
-                if items else '<div class="empty">sin nada planificado todavía</div>')
-        parts.append(
-            f'<section class="day"><h2>{_esc(head)}</h2>'
-            + (f'<div class="where">Base: {_esc(where)}</div>' if where else "")
-            + (f'<div class="daynote">{_esc(day["notes"])}</div>' if day.get("notes") else "")
-            + body + "</section>")
-    if not days:
-        parts.append('<div class="empty">Este viaje todavía no tiene días. Créalos en la vista Itinerario.</div>')
-    html = f"""<!DOCTYPE html>
-<html lang="es"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Itinerario — {_esc(trip['name'])}</title>
-<style>{ITINERARY_CSS}</style></head>
-<body>
-<h1>{_esc(trip['name'])}</h1>
-<div class="sub">Itinerario{(' · ' + _esc(span)) if span else ''} · {len(days)} días</div>
-{''.join(parts)}
-<div class="foot"><span>archTrip</span><span>José Vargas-Zúñiga Soldevila, 2026</span>
-<a href="https://ko-fi.com/josevzs">Ko-fi</a><a href="https://github.com/josevzs/archTrip">GitHub</a></div>
-</body></html>
-"""
-    return html, f"itinerario-{slugify(trip['name'])}.html"
+        rows = []
+        for it in day.get("items") or []:
+            time = it.get("at_time") or ""
+            if it["kind"] == "nota":
+                rows.append((time, it.get("text") or "", ""))
+                continue
+            lm = landmarks.get(it.get("landmark_id"))
+            if lm is None:
+                rows.append((time, "hito eliminado", ""))
+                continue
+            bits = [lm["city"]]
+            if lm.get("year"):
+                bits.append(str(lm["year"]))
+            if lm.get("address"):
+                bits.append(lm["address"])
+            minutes, stop = lm.get("drive_minutes"), stops.get(lm.get("nearest_stop_id"))
+            if minutes is not None and stop:
+                approx = "≈" if lm.get("drive_source") == "estimado" else ""
+                bits.append(f"{approx}{round(minutes)} min en coche desde {stop['city']}")
+            if lm.get("notes"):
+                bits.append(lm["notes"])
+            rows.append((time, f"{lm['architect'].upper()} — {lm['name']}", " · ".join(bits)))
+        out.append({"head": head,
+                    "base": day.get("stop_city") or (stops.get(day.get("stop_id")) or {}).get("city") or "",
+                    "notes": day.get("notes") or "", "items": rows})
+    return out
+
+
+class _Numbered(canvas.Canvas):
+    """Pie con "generado con" y la paginación, que necesita saber el total: dos pasadas."""
+
+    def __init__(self, *args, **kw):
+        super().__init__(*args, **kw)
+        self._pages = []
+
+    def showPage(self):
+        self._pages.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        total = len(self._pages)
+        for state in self._pages:
+            self.__dict__.update(state)
+            self._foot(total)
+            super().showPage()
+        super().save()
+
+    def _foot(self, total):
+        self.setFont(self._archtrip_font, 7.5)
+        self.setFillColorRGB(.45, .45, .45)
+        self.drawString(PAGE_MARGIN, 12 * mm, self._archtrip_note)
+        self.drawRightString(A4[0] - PAGE_MARGIN, 12 * mm, f"página {self._pageNumber} de {total}")
+
+
+def itinerary_pdf(payload):
+    """-> (pdf_bytes, filename). Día a día, para imprimir o mandar por correo."""
+    trip = payload["trip"]
+    font, unicode_ok = _mono_font()
+    clean = (lambda t: t) if unicode_ok else _latin1
+    styles = {
+        "title": ParagraphStyle("t", fontName=font, fontSize=15, leading=19, spaceAfter=2),
+        "sub": ParagraphStyle("s", fontName=font, fontSize=8.5, leading=12, textColor=colors.HexColor("#666666")),
+        "day": ParagraphStyle("d", fontName=font, fontSize=10.5, leading=14, spaceBefore=2, spaceAfter=1),
+        "base": ParagraphStyle("b", fontName=font, fontSize=8.5, leading=11, textColor=colors.HexColor("#666666")),
+        "note": ParagraphStyle("n", fontName=font, fontSize=8.5, leading=11.5, textColor=colors.HexColor("#333333"),
+                               backColor=colors.HexColor("#f4f4f4"), borderPadding=4, spaceBefore=3, spaceAfter=3),
+        "time": ParagraphStyle("h", fontName=font, fontSize=9, leading=12, textColor=colors.HexColor("#666666")),
+        "item": ParagraphStyle("i", fontName=font, fontSize=9, leading=12),
+        "meta": ParagraphStyle("m", fontName=font, fontSize=7.5, leading=10, textColor=colors.HexColor("#666666")),
+        "empty": ParagraphStyle("e", fontName=font, fontSize=8.5, leading=11, textColor=colors.HexColor("#999999")),
+    }
+    rows = itinerary_rows(payload)
+    dated = [d["date"] for d in (payload.get("days") or []) if d.get("date")]
+    span = ""
+    if dated:
+        span = pretty_date(min(dated)) + (f" — {pretty_date(max(dated))}" if min(dated) != max(dated) else "")
+
+    story = [Paragraph(_esc(clean(trip["name"])).upper(), styles["title"]),
+             Paragraph(_esc(clean("Itinerario" + (f" · {span}" if span else "") + f" · {len(rows)} días")), styles["sub"]),
+             Spacer(1, 6 * mm)]
+    if not rows:
+        story.append(Paragraph(_esc(clean("Este viaje todavía no tiene días: créalos en la vista Itinerario.")), styles["empty"]))
+    for day in rows:
+        block = [HRFlowable(width="100%", thickness=1, color=colors.HexColor("#111111"), spaceAfter=4),
+                 Paragraph(_esc(clean(day["head"])).upper(), styles["day"])]
+        if day["base"]:
+            block.append(Paragraph(_esc(clean("Base: " + day["base"])), styles["base"]))
+        if day["notes"]:
+            block.append(Paragraph(_esc(clean(day["notes"])), styles["note"]))
+        if day["items"]:
+            data = []
+            for time, line, meta in day["items"]:
+                cell = [Paragraph(_esc(clean(line)), styles["item"])]
+                if meta:
+                    cell.append(Paragraph(_esc(clean(meta)), styles["meta"]))
+                data.append([Paragraph(_esc(clean(time)), styles["time"]), cell])
+            table = Table(data, colWidths=[16 * mm, None], hAlign="LEFT")
+            table.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("LINEBELOW", (0, 0), (-1, -2), .4, colors.HexColor("#d8d8d8")),
+            ]))
+            block.append(table)
+        else:
+            block.append(Paragraph(_esc(clean("sin nada planificado todavía")), styles["empty"]))
+        block.append(Spacer(1, 5 * mm))
+        # el día entero junto si cabe; si no, que parta por donde pueda
+        story.append(KeepTogether(block) if len(day["items"]) <= 8 else block[0])
+        if len(day["items"]) > 8:
+            story.extend(block[1:])
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, title=f"Itinerario — {clean(trip['name'])}", author="", creator="archTrip",
+                            subject="", leftMargin=PAGE_MARGIN, rightMargin=PAGE_MARGIN,
+                            topMargin=PAGE_MARGIN, bottomMargin=20 * mm)
+    _Numbered._archtrip_font = font
+    _Numbered._archtrip_note = clean(f"Generado con el sistema archTrip el {today_long()}")
+    doc.build(story, canvasmaker=_Numbered)
+    return buf.getvalue(), f"itinerario-{slugify(trip['name'])}.pdf"
 
 
 def _itinerary_note(payload):

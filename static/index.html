@@ -180,6 +180,14 @@
   #credits a { color: var(--muted); display: inline-flex; align-items: center; text-decoration: none; }
   #credits a:hover { color: var(--ink); }
   .banner { background: var(--soft); border: 1px dashed var(--line); padding: 8px 12px; margin-bottom: 12px; }
+  /* barra para asignar hitos a un día sin salir de fotos, mapa o lista */
+  .daybar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 12px;
+            border: 1px solid var(--line); border-left: 3px solid var(--ink); padding: 6px 10px; }
+  .daybar .lab { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .daybar button { font-size: 12px; padding: 3px 8px; }
+  .daybar button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  button.dayadd { border-style: dashed; }
+  button.dayadd.on { background: var(--ink); color: var(--bg); border-color: var(--ink); border-style: solid; }
   /* itinerario: días con fecha, hitos ordenados y notas sueltas */
   .controls.itin #tabs, .controls.itin #search { display: none; }
   .itin .itinbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
@@ -300,12 +308,12 @@
     screen: 'trips', trips: [], trip: null, stops: [], landmarks: [], days: [], pending: null,
     filter: 'todos', query: '', editing: null, msg: null, view: VIEWS[savedView] ? savedView : 'fotos',
     newMode: null, promptText: null,
-    detail: null, detailImg: 0, addingImage: false, picker: null,
+    detail: null, detailImg: 0, addingImage: false, picker: null, activeDay: null,
     hideRejected: savedHide === '1', skipRejected: savedSkip === '1',
     enrich: { running: false, remaining: 0, error: null },
     admin: { authed: null, sessions: [], open: null, changes: [], query: '', history: null, backups: [], busy: false, note: null },
   };
-  const mapState = { map: null, layer: null, cluster: null, fitted: false, listPopup: null };
+  const mapState = { map: null, layer: null, cluster: null, fitted: false, listPopup: null, markers: {} };
 
   // ------------------------------------------------------------ helpers
   const esc = (s) => String(s == null ? '' : s)
@@ -565,7 +573,7 @@
         + '<div class="group"><button data-action="pick-file" data-kind="route">⬆ Subir ruta</button>'
         + '<button data-action="pick-file" data-kind="landmarks">⬆ Subir hitos</button>'
         + '<input type="file" accept=".xlsx" data-upload="route" hidden><input type="file" accept=".xlsx" data-upload="landmarks" hidden></div>'
-        + '<div class="group"><a class="btn quiet" href="/api/trips/' + t.id + '/export/itinerario?download=1" download>⬇ Itinerario</a>'
+        + '<div class="group"><a class="btn quiet" href="/api/trips/' + t.id + '/export/itinerario" download>⬇ Itinerario (PDF)</a>'
         + '<a class="btn quiet" href="/api/trips/' + t.id + '/export/html" download>Exportar HTML</a>'
         + '<a class="btn quiet" href="/api/trips/' + t.id + '/export/obsidian" download>Exportar Obsidian</a></div>'
         + '</div>';
@@ -577,7 +585,7 @@
       + '<div class="controls"><div id="tabs" class="tabs"></div>'
       + '<input type="text" id="search" class="grow" placeholder="buscar edificio, arquitecto o ciudad" value="' + attr(state.query) + '">'
       + '<div class="views" id="views"></div></div>'
-      + '<div id="list"></div>';
+      + '<div id="daybar"></div><div id="list"></div>';
   }
 
   function routeView() {
@@ -701,7 +709,64 @@
 
   function statusButtons(lm, extra) {
     const btn = (s, label) => '<button class="' + (lm.status === s ? 'on ' + s : 'quiet') + '" data-action="set-status" data-id="' + lm.id + '" data-status="' + s + '">' + label + '</button>';
-    return btn('curado', '✓ Curar') + btn('posible', '? Posible') + btn('descartado', '✗ Descartar') + (extra || '');
+    return btn('curado', '✓ Curar') + btn('posible', '? Posible') + btn('descartado', '✗ Descartar') + dayButton(lm) + (extra || '');
+  }
+
+  // Un clic mete (o saca) el hito del día elegido arriba: vale en fotos, mapa, lista y ficha.
+  function dayButton(lm) {
+    const day = activeDay();
+    if (!day) return '';
+    const n = state.days.indexOf(day) + 1;
+    const inside = (day.items || []).some((it) => it.kind === 'hito' && it.landmark_id === lm.id);
+    return '<button class="dayadd' + (inside ? ' on' : '') + '" data-action="toggle-day" data-id="' + lm.id + '"'
+      + ' title="' + attr(inside ? 'Quitar del ' + dayLabel(day, n) : 'Añadir al ' + dayLabel(day, n)) + '">'
+      + (inside ? 'D' + n + ' ✓' : '＋ D' + n) + '</button>';
+  }
+
+  function activeDay() {
+    if (STANDALONE || !state.days.length) return null;
+    return state.days.find((d) => d.id === state.activeDay) || null;
+  }
+
+  function setActiveDay(id) {
+    state.activeDay = id;
+    try { localStorage.setItem('archtrip:day:' + state.trip.id, id == null ? '' : String(id)); } catch (e) { /* ignore */ }
+  }
+
+  function shortDate(value) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+    return m ? Number(m[3]) + ' ' + MONTHS[Number(m[2]) - 1].slice(0, 3) : '';
+  }
+
+  function daybarView() {
+    if (STANDALONE || state.view === 'itinerario' || !state.days.length) return '';
+    const chips = state.days.map((d, i) => {
+      const hits = (d.items || []).filter((it) => it.kind === 'hito').length;
+      const label = 'D' + (i + 1) + (d.date ? ' · ' + shortDate(d.date) : d.title ? ' · ' + d.title.slice(0, 12) : '');
+      return '<button class="' + (state.activeDay === d.id ? 'on' : 'quiet') + '" data-action="pick-day" data-id="' + d.id + '"'
+        + ' title="' + attr(dayLabel(d, i + 1)) + '">' + esc(label) + (hits ? ' (' + hits + ')' : '') + '</button>';
+    }).join('');
+    return '<div class="daybar"><span class="lab">Añadir al día</span>' + chips
+      + '<span class="muted small">y pulsa ＋ D' + (state.days.indexOf(activeDay()) + 1) + ' en cada hito</span>'
+      + '<span class="grow"></span><a class="btn quiet small" href="#" data-action="view" data-view="itinerario" style="font-size:12px;padding:3px 8px">ver itinerario</a></div>';
+  }
+
+  async function toggleDay(lmId) {
+    const day = activeDay();
+    if (!day) return;
+    const item = (day.items || []).find((it) => it.kind === 'hito' && it.landmark_id === lmId);
+    try {
+      applyDay(item ? await store.deleteItem(item.id) : await store.addItem(day.id, { kind: 'hito', landmark_id: lmId }));
+    } catch (e) { fail(e); renderList(); return; }
+    const bar = document.getElementById('daybar');
+    if (bar) bar.innerHTML = daybarView();
+    const lm = state.landmarks.find((x) => x.id === lmId);
+    if (state.view === 'mapa') {
+      const marker = mapState.markers && mapState.markers[lmId];
+      if (marker && marker.isPopupOpen()) marker.setPopupContent(popupView(lm));
+      if (mapState.listPopup) openClusterList(mapState.listPopup.latlng, mapState.listPopup.ids);
+    } else if (lm) patchCard(lm);
+    if (state.detail === lmId) renderDetail();
   }
 
   function linksView(lm) {
@@ -899,8 +964,7 @@
   function itineraryView() {
     const bar = STANDALONE ? ''
       : '<div class="itinbar"><button data-action="day-add">＋ Añadir día</button>'
-        + '<a class="btn quiet" href="/api/trips/' + state.trip.id + '/export/itinerario?download=1" download>⬇ Descargar itinerario</a>'
-        + '<a class="btn quiet" href="/api/trips/' + state.trip.id + '/export/itinerario" target="_blank" rel="noopener">Ver para imprimir</a></div>'
+        + '<a class="btn quiet" href="/api/trips/' + state.trip.id + '/export/itinerario" download title="Un PDF día a día, listo para imprimir o mandar">⬇ Descargar itinerario (PDF)</a></div>'
         + '<div class="muted small" style="margin:0 0 14px">Cada día lleva fecha, ciudad base y sus hitos con hora; arrastra ⠿ para ordenarlos o pasarlos a otro día.</div>';
     if (!state.days.length) {
       return '<div class="itin">' + bar + '<div class="empty">'
@@ -1027,6 +1091,7 @@
     const layer = mapState.layer;
     layer.clearLayers();
     mapState.cluster.clearLayers();
+    mapState.markers = {};
     const items = visibleLandmarks();
     const shown = items.filter(located);
     const pts = [];
@@ -1047,6 +1112,7 @@
       const offRoute = routePts.length > 0 && routePts.every((s) => km(s, p) > 150);
       const m = L.circleMarker(p, { radius: 7, color: COLORS[lm.status] || '#111', weight: 2, fillColor: offRoute ? '#b3261e' : '#fff', fillOpacity: .9,
         status: lm.status, landmarkId: lm.id });
+      mapState.markers[lm.id] = m;
       m.bindTooltip(lm.architect + ' — ' + lm.name + (offRoute ? ' (¿mal localizado?)' : ''));
       m.bindPopup(() => popupView(state.landmarks.find((x) => x.id === lm.id) || lm), { maxWidth: 280 });
       mapState.cluster.addLayer(m);
@@ -1078,6 +1144,8 @@
     el('msg').innerHTML = msgView();
     const controls = document.querySelector('.controls');
     if (controls) controls.classList.toggle('itin', state.view === 'itinerario');
+    if (state.days.length && !activeDay()) setActiveDay(state.days[0].id);
+    el('daybar').innerHTML = daybarView();
     if (state.view === 'mapa') renderMap();
     else {
       el('list').innerHTML = listView();
@@ -1335,6 +1403,8 @@
       const d = await store.getTrip(id);
       state.trip = d.trip; state.stops = d.stops; state.landmarks = d.landmarks; state.pending = d.pending;
       state.days = d.days || []; sortDays();
+      try { state.activeDay = Number(localStorage.getItem('archtrip:day:' + d.trip.id)) || null; } catch (e) { state.activeDay = null; }
+      if (!state.days.some((x) => x.id === state.activeDay)) state.activeDay = state.days.length ? state.days[0].id : null;
       state.screen = 'trip';
       if (!keepMsg) state.msg = null;
       state.editing = null; state.detail = null; state.picker = null;
@@ -1533,6 +1603,8 @@
       if (!day || !confirm('¿Borrar el día ' + n + (day.date ? ' (' + prettyDate(day.date) + ')' : '') + ' y sus ' + (day.items || []).length + ' elementos?\nLos hitos no se borran, solo dejan de estar en ese día.')) return;
       dayDo(async () => { await store.deleteDay(day.id); state.days = state.days.filter((d) => d.id !== day.id); });
     },
+    'pick-day': (el) => { setActiveDay(Number(el.dataset.id)); renderList(); },
+    'toggle-day': (el) => toggleDay(Number(el.dataset.id)),
     'picker-open': (el) => { state.picker = { dayId: Number(el.dataset.id), query: '' }; renderList(); const i = document.getElementById('picker-input'); if (i) i.focus(); },
     'picker-close': () => { state.picker = null; renderList(); },
     'pick-landmark': (el) => dayDo(async () => {

@@ -96,15 +96,21 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
      bloque de texto libre para lo que no es un edificio: un tren, una comida, un aviso.
    - Cada línea puede llevar **hora** (opcional) y se **reordena arrastrando ⠿**, también de un
      día a otro. **Ordenar por hora** recoloca de golpe las que tengan hora.
-   - Desde la **ficha** de cualquier hito hay un desplegable «añadir a un día…», y la ficha dice
+   - **Asignar en serie, sin abrir el itinerario**: en cuanto hay días, encima de la lista
+     aparece una **barra de días** (`D1 · 12 abr (4)`). Eliges el día y luego vas pulsando el
+     botón **＋ D1** que llevan todas las fichas —en Fotos, en Arquitectos, en Lista, en el
+     popup del mapa y en la ficha grande—; el botón se queda marcado (`D1 ✓`) y volver a
+     pulsarlo lo saca. La cuenta de la barra se actualiza sola, así que se puede ir día por día
+     repasando el mapa o la parrilla de fotos.
+   - Desde la **ficha** de cualquier hito hay además un desplegable «añadir a un día…», y dice
      en qué días está ya metido.
    - Quitar una línea (✕) no borra el hito del viaje, solo lo saca de ese día; borrar un día
      tampoco borra sus hitos.
 6. **Exportar**:
-   - **Itinerario**: un HTML día a día, pensado para imprimir o guardar como PDF desde el
-     navegador (Ctrl+P → Guardar como PDF), con las horas, el arquitecto y el edificio, ciudad,
-     año, tiempo en coche desde la base y enlaces a mapa, ArchDaily, Arquitectura Viva y
-     Wikipedia. «Ver para imprimir» lo abre en otra pestaña sin descargarlo.
+   - **Itinerario (PDF)**: un PDF día a día listo para imprimir o mandar a los alumnos, con las
+     horas, el arquitecto y el edificio, ciudad, año, tiempo en coche desde la base y las notas.
+     No lleva la barra de créditos de la aplicación: solo un pie discreto de «generado con el
+     sistema archTrip el …» y la paginación.
    - **HTML**: un único archivo `viaje-<nombre>.html` que se abre con doble clic en cualquier
      ordenador, sin servidor. Guarda los cambios en el navegador y con **Guardar copia**
      genera un nuevo HTML con el estado actual para compartir.

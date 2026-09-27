@@ -674,12 +674,12 @@ def export_html(trip_id):
 
 @api.get("/trips/<int:trip_id>/export/itinerario")
 def export_itinerary(trip_id):
-    """Day-by-day itinerary, ready to print (or to save as PDF from the browser)."""
+    """Day-by-day itinerary as a PDF, ready to print or to send to the students."""
     db = get_db()
     trip = _trip_or_404(db, trip_id)
-    html, filename = export.itinerary_html(_trip_payload(db, trip))
-    return send_file(io.BytesIO(html.encode("utf-8")), mimetype="text/html",
-                     as_attachment=("download" in request.args), download_name=filename)
+    data, filename = export.itinerary_pdf(_trip_payload(db, trip))
+    return send_file(io.BytesIO(data), mimetype="application/pdf",
+                     as_attachment=True, download_name=filename)
 
 
 @api.get("/trips/<int:trip_id>/export/obsidian")

@@ -1,8 +1,16 @@
 """Days of the trip: dates, landmarks and notes in order, and the printable itinerary."""
+import io
 import zipfile
 
+from pypdf import PdfReader
+
 from conftest import LANDMARK_HEADER, LANDMARK_ROWS, ROUTE_HEADER, ROUTE_ROWS, make_xlsx, upload
-from test_api import fake_geo, new_trip  # noqa: F401  (fixture + helper)
+from test_api import enrich_all, fake_geo, new_trip  # noqa: F401  (fixture + helper)
+
+
+def pdf_text(data):
+    """Todo el texto del PDF, página a página."""
+    return "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(data)).pages)
 
 
 def seed(client):
@@ -86,7 +94,7 @@ def test_items_move_between_days(client):
     assert days[0]["items"] == [] and len(days[1]["items"]) == 2
 
 
-def test_itinerary_export_html_and_obsidian(client, fake_geo):
+def test_itinerary_export_pdf_and_obsidian(client, fake_geo):
     tid = seed(client)
     stop = trip(client, tid)["stops"][0]
     day = client.post(f"/api/trips/{tid}/days", json={"date": "2027-04-12", "stop_id": stop["id"],
@@ -96,19 +104,44 @@ def test_itinerary_export_html_and_obsidian(client, fake_geo):
     client.post(f"/api/days/{day['id']}/items", json={"kind": "nota", "text": "comida por la Ribeira"})
     client.post(f"/api/trips/{tid}/days", json={})
 
-    html = client.get(f"/api/trips/{tid}/export/itinerario").data.decode("utf-8")
-    assert "lunes 12 de abril de 2027" in html and "Oporto a pie" in html and "recoger llaves" in html
-    assert "09:30" in html and "REM KOOLHAAS".title() or True
-    assert "Casa da Música" in html and "comida por la Ribeira" in html
-    assert "Base: Oporto" in html and "Día 2" in html and "sin nada planificado todavía" in html
-    r = client.get(f"/api/trips/{tid}/export/itinerario?download=1")
-    assert "itinerario-portugal-2027.html" in r.headers["Content-Disposition"]
+    r = client.get(f"/api/trips/{tid}/export/itinerario")
+    assert r.status_code == 200 and r.mimetype == "application/pdf"
+    assert "itinerario-portugal-2027.pdf" in r.headers["Content-Disposition"]
+    assert r.data[:4] == b"%PDF" and len(r.data) > 2000
+
+    text = pdf_text(r.data)
+    assert "DÍA 1 · LUNES 12 DE ABRIL DE 2027 · OPORTO A PIE" in text
+    assert "Base: Oporto" in text and "recoger llaves" in text
+    assert "09:30" in text and "REM KOOLHAAS — Casa da Música" in text
+    assert "comida por la Ribeira" in text and "sin nada planificado todavía" in text
+    assert "Generado con el sistema archTrip el " in text and "página 1 de " in text
+    # el PDF se reparte: no lleva la barra de créditos de la aplicación
+    for fuera in ("Ko-fi", "ko-fi", "GitHub", "Vargas", "2026 ·"):
+        assert fuera not in text, fuera
 
     zf = zipfile.ZipFile(__import__("io").BytesIO(client.get(f"/api/trips/{tid}/export/obsidian").data))
     note = zf.read("Portugal 2027/Itinerario.md").decode("utf-8")
     assert "## Día 1 · lunes 12 de abril de 2027 · Oporto a pie" in note
     assert "**09:30** [[Casa da Música — Rem Koolhaas|Casa da Música]]" in note
     assert "*comida por la Ribeira*" in note
+
+
+def test_itinerary_rows_are_what_gets_printed(client, fake_geo, app):
+    tid = seed(client)
+    day = client.post(f"/api/trips/{tid}/days", json={"date": "2027-04-12"}).get_json()
+    lm = trip(client, tid)["landmarks"][0]
+    client.post(f"/api/days/{day['id']}/items", json={"landmark_id": lm["id"], "at_time": "09:30"})
+    enrich_all(client, tid)
+    from archtrip import export
+    with app.test_request_context():
+        from archtrip.db import get_db, row
+        from archtrip.routes import _trip_payload
+        payload = _trip_payload(get_db(), row(get_db().execute("SELECT * FROM trips WHERE id = ?", (tid,))))
+    rows = export.itinerary_rows(payload)
+    assert rows[0]["head"] == "Día 1 · lunes 12 de abril de 2027"
+    time, line, meta = rows[0]["items"][0]
+    assert (time, line) == ("09:30", "REM KOOLHAAS — Casa da Música")
+    assert "Oporto" in meta and "2005" in meta and "min en coche desde Oporto" in meta
 
 
 def test_itinerary_travels_in_the_standalone_copy(client):

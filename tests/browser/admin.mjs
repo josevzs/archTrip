@@ -64,7 +64,9 @@ try {
   check('right password shows the sessions table', await evaluate(count('tr.sess')) >= 1, await evaluate(count('tr.sess')));
 
   // ---- sessions: name, open, undo one change, undo the whole session
-  const sid = await evaluate(`document.querySelector('tr.sess td').textContent`);
+  // la sesión con curado (la del sembrador), sea o no la más reciente
+  const sid = await evaluate(`(() => { const row = [...document.querySelectorAll('tr.sess')].find(r => r.textContent.includes(' estado')); return row ? row.querySelector('td').textContent.trim() : null; })()`);
+  check('hay una sesión con cambios de curado', !!sid, String(sid));
   await submit(`[data-form="session-name"][data-id="${sid}"]`, { name: 'Prueba navegador' }); await sleep(1000);
   const named = (await (await fetch(`${BASE}/api/admin/sessions`, { headers: { Cookie: '' } })).status) === 401;
   check('sessions API stays private for other clients', named);
@@ -76,7 +78,7 @@ try {
     && /pendiente → curado/.test(await evaluate(text('ul.changes'))));
   const undoId = await evaluate(`(() => { const li = [...document.querySelectorAll('ul.changes li')].find((l) => /pendiente → curado/.test(l.textContent)); return li ? li.querySelector('[data-action="adm-revert-change"]').dataset.id : null; })()`);
   check('the status change offers undo', !!undoId);
-  const sessBefore = await evaluate(count('tr.sess'));
+  const sessBefore = await evaluate(count('tr.sess'));   // el deshacer abrirá una sesión propia
   await evaluate(`document.querySelector('[data-action="adm-revert-change"][data-id="${undoId}"]').click()`); await sleep(1200);
   check('undo reports and strikes the change through', (await evaluate(text('.msg'))).includes('revertido') && await evaluate(`document.getElementById('ch${undoId}').classList.contains('undone')`));
   // the undo is journaled under the admin's own browser session (a new row in the table)
