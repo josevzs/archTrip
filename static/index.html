@@ -127,6 +127,8 @@
   .clusterlist .actions button { padding: 3px 7px; font-size: 12px; }
   .leaflet-popup-content.wide { min-width: 260px; }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+  .legend i.hollow { background: var(--bg) !important; border: 2px solid var(--muted); width: 8px; height: 8px; }
+  .legend i.filled { background: var(--muted) !important; border: 2px solid var(--muted); width: 8px; height: 8px; }
 
   /* ---- ficha (detalle) */
   .detail { position: fixed; inset: 0; background: var(--bg); z-index: 1000; display: flex; flex-direction: column; padding: 14px 20px; overflow: auto; }
@@ -183,6 +185,10 @@
   /* barra para asignar hitos a un día sin salir de fotos, mapa o lista */
   .daybar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 12px;
             border: 1px solid var(--line); border-left: 3px solid var(--ink); padding: 6px 10px; }
+  .daybar.off { border-left-color: var(--line); padding: 3px 10px; }
+  .daybar.off .lab { color: var(--muted); }
+  .daybar .fold { border: 0; background: none; padding: 0 2px; color: var(--muted); cursor: pointer; font-size: 13px; }
+  .daybar .fold:hover { color: var(--ink); background: none; }
   .daybar .lab { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
   .daybar button { font-size: 12px; padding: 3px 8px; }
   .daybar button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
@@ -304,11 +310,13 @@
     savedHide = localStorage.getItem('archtrip:hideRejected') || '1';
     savedSkip = localStorage.getItem('archtrip:skipRejected') || '1';
   } catch (e) { /* no storage */ }
+  let savedDayMode = '1';
+  try { savedDayMode = localStorage.getItem('archtrip:dayMode') || '1'; } catch (e) { /* no storage */ }
   const state = {
     screen: 'trips', trips: [], trip: null, stops: [], landmarks: [], days: [], pending: null,
     filter: 'todos', query: '', editing: null, msg: null, view: VIEWS[savedView] ? savedView : 'fotos',
     newMode: null, promptText: null,
-    detail: null, detailImg: 0, addingImage: false, picker: null, activeDay: null,
+    detail: null, detailImg: 0, addingImage: false, picker: null, activeDay: null, dayMode: savedDayMode === '1',
     hideRejected: savedHide === '1', skipRejected: savedSkip === '1',
     enrich: { running: false, remaining: 0, error: null },
     admin: { authed: null, sessions: [], open: null, changes: [], query: '', history: null, backups: [], busy: false, note: null },
@@ -714,13 +722,20 @@
 
   // Un clic mete (o saca) el hito del día elegido arriba: vale en fotos, mapa, lista y ficha.
   function dayButton(lm) {
-    const day = activeDay();
+    const day = state.dayMode ? activeDay() : null;   // plegada = fuera de en medio
     if (!day) return '';
     const n = state.days.indexOf(day) + 1;
     const inside = (day.items || []).some((it) => it.kind === 'hito' && it.landmark_id === lm.id);
     return '<button class="dayadd' + (inside ? ' on' : '') + '" data-action="toggle-day" data-id="' + lm.id + '"'
       + ' title="' + attr(inside ? 'Quitar del ' + dayLabel(day, n) : 'Añadir al ' + dayLabel(day, n)) + '">'
       + (inside ? 'D' + n + ' ✓' : '＋ D' + n) + '</button>';
+  }
+
+  // hitos que ya están metidos en algún día: en el mapa se pintan rellenos
+  function assignedIds() {
+    const set = new Set();
+    state.days.forEach((d) => (d.items || []).forEach((it) => { if (it.kind === 'hito') set.add(it.landmark_id); }));
+    return set;
   }
 
   function activeDay() {
@@ -746,9 +761,16 @@
       return '<button class="' + (state.activeDay === d.id ? 'on' : 'quiet') + '" data-action="pick-day" data-id="' + d.id + '"'
         + ' title="' + attr(dayLabel(d, i + 1)) + '">' + esc(label) + (hits ? ' (' + hits + ')' : '') + '</button>';
     }).join('');
+    const placed = assignedIds().size;
+    if (!state.dayMode) {     // plegada: solo el asa, para que no moleste mientras se cura
+      return '<div class="daybar off"><span class="lab">Itinerario</span>'
+        + '<span class="muted small">' + placed + ' de ' + state.landmarks.length + ' hitos repartidos en ' + state.days.length + ' días</span>'
+        + '<button class="fold" data-action="day-mode" title="Mostrar la barra para asignar hitos a días">▸ asignar a días</button></div>';
+    }
     return '<div class="daybar"><span class="lab">Añadir al día</span>' + chips
       + '<span class="muted small">y pulsa ＋ D' + (state.days.indexOf(activeDay()) + 1) + ' en cada hito</span>'
-      + '<span class="grow"></span><a class="btn quiet small" href="#" data-action="view" data-view="itinerario" style="font-size:12px;padding:3px 8px">ver itinerario</a></div>';
+      + '<span class="grow"></span><a class="btn quiet small" href="#" data-action="view" data-view="itinerario" style="font-size:12px;padding:3px 8px">ver itinerario</a>'
+      + '<button class="fold" data-action="day-mode" title="Ocultar esta barra y los botones ＋ de las fichas">▾ ocultar</button></div>';
   }
 
   async function toggleDay(lmId) {
@@ -763,6 +785,7 @@
     const lm = state.landmarks.find((x) => x.id === lmId);
     if (state.view === 'mapa') {
       const marker = mapState.markers && mapState.markers[lmId];
+      if (marker) marker.setStyle(markerFill(lm, marker.options.fillColor === '#b3261e'));
       if (marker && marker.isPopupOpen()) marker.setPopupContent(popupView(lm));
       if (mapState.listPopup) openClusterList(mapState.listPopup.latlng, mapState.listPopup.ids);
     } else if (lm) patchCard(lm);
@@ -1087,6 +1110,13 @@
     }).catch((e) => { el.innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; });
   }
 
+  function markerFill(lm, offRoute, placed) {
+    if (offRoute) return { fillColor: '#b3261e', fillOpacity: .9 };
+    return (placed || assignedIds()).has(lm.id)
+      ? { fillColor: COLORS[lm.status] || '#111', fillOpacity: 1 }
+      : { fillColor: '#fff', fillOpacity: .9 };
+  }
+
   function updateMarkers(L) {
     const layer = mapState.layer;
     layer.clearLayers();
@@ -1107,11 +1137,13 @@
     // keep it on the map (so it can be spotted) but don't let it drive the zoom
     const km = (a, b) => { const r = Math.PI / 180, x = Math.sin((b[0] - a[0]) * r / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin((b[1] - a[1]) * r / 2) ** 2; return 12742 * Math.asin(Math.sqrt(x)); };
     let far = 0;
+    const placed = assignedIds();
     shown.forEach((lm) => {
       const p = [lm.lat, lm.lon];
       const offRoute = routePts.length > 0 && routePts.every((s) => km(s, p) > 150);
-      const m = L.circleMarker(p, { radius: 7, color: COLORS[lm.status] || '#111', weight: 2, fillColor: offRoute ? '#b3261e' : '#fff', fillOpacity: .9,
-        status: lm.status, landmarkId: lm.id });
+      // relleno = ya está metido en algún día del itinerario; hueco = todavía sin colocar
+      const m = L.circleMarker(p, Object.assign({ radius: 7, color: COLORS[lm.status] || '#111', weight: 2,
+        status: lm.status, landmarkId: lm.id }, markerFill(lm, offRoute, placed)));
       mapState.markers[lm.id] = m;
       m.bindTooltip(lm.architect + ' — ' + lm.name + (offRoute ? ' (¿mal localizado?)' : ''));
       m.bindPopup(() => popupView(state.landmarks.find((x) => x.id === lm.id) || lm), { maxWidth: 280 });
@@ -1124,7 +1156,8 @@
       if (ids.length) openClusterList(mapState.listPopup.latlng, ids); else { mapState.map.closePopup(); mapState.listPopup = null; }
     }
     const hidden = items.length - shown.length;
-    const legend = Object.keys(COLORS).map((s) => '<span><i style="background:' + COLORS[s] + '"></i>' + FILTER_LABEL[s] + '</span>').join('');
+    const legend = Object.keys(COLORS).map((s) => '<span><i style="background:' + COLORS[s] + '"></i>' + FILTER_LABEL[s] + '</span>').join('')
+      + (state.days.length ? '<span title="El relleno dice si el hito ya está metido en algún día"><i class="hollow"></i>sin día<i class="filled" style="margin-left:10px"></i>ya en un día</span>' : '');
     const off = shown.length && pts.length ? shown.filter((lm) => !mapState.map.getBounds().contains([lm.lat, lm.lon])).length : 0;
     document.getElementById('map-note').innerHTML = legend
       + '<button class="link" data-action="fit-map" title="Encuadra el mapa sobre lo que se está mostrando">ajustar vista</button>'
@@ -1604,6 +1637,11 @@
       dayDo(async () => { await store.deleteDay(day.id); state.days = state.days.filter((d) => d.id !== day.id); });
     },
     'pick-day': (el) => { setActiveDay(Number(el.dataset.id)); renderList(); },
+    'day-mode': () => {
+      state.dayMode = !state.dayMode;
+      try { localStorage.setItem('archtrip:dayMode', state.dayMode ? '1' : '0'); } catch (e) { /* ignore */ }
+      renderList();
+    },
     'toggle-day': (el) => toggleDay(Number(el.dataset.id)),
     'picker-open': (el) => { state.picker = { dayId: Number(el.dataset.id), query: '' }; renderList(); const i = document.getElementById('picker-input'); if (i) i.focus(); },
     'picker-close': () => { state.picker = null; renderList(); },

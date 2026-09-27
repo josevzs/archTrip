@@ -101,7 +101,11 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
      botón **＋ D1** que llevan todas las fichas —en Fotos, en Arquitectos, en Lista, en el
      popup del mapa y en la ficha grande—; el botón se queda marcado (`D1 ✓`) y volver a
      pulsarlo lo saca. La cuenta de la barra se actualiza sola, así que se puede ir día por día
-     repasando el mapa o la parrilla de fotos.
+     repasando el mapa o la parrilla de fotos. Con **▾ ocultar** la barra se pliega a una línea
+     (`1 de 5 hitos repartidos en 2 días`) y desaparecen los botones ＋ de las fichas, para no
+     estorbar mientras se cura; se recuerda plegada hasta que se vuelva a abrir.
+   - En el **mapa**, los hitos que ya están metidos en algún día se pintan **rellenos** y los que
+     faltan quedan **huecos**, con su leyenda: se ve de un golpe lo que queda por colocar.
    - Desde la **ficha** de cualquier hito hay además un desplegable «añadir a un día…», y dice
      en qué días está ya metido.
    - Quitar una línea (✕) no borra el hito del viaje, solo lo saca de ese día; borrar un día
