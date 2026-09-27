@@ -160,6 +160,38 @@ try {
   check('cluster ring reflects the new status', ringColors.includes(expectColor), listStatus + ' ' + ringColors);
   await evaluate(`document.querySelector('.leaflet-popup-close-button').click()`); await sleep(300);
 
+  // ---- el encuadre del mapa aguanta: filtrar, buscar u ocultar descartados solo repintan puntos
+  // (no hay acceso al objeto Leaflet desde fuera, así que se mira la transformación de sus paneles)
+  const viewSig = () => evaluate(`['.leaflet-map-pane', '.leaflet-tile-container'].map(s => (document.querySelector(s)||{style:{}}).style.transform).join('|')`);
+  await evaluate(`document.querySelector('.leaflet-control-zoom-in').click()`); await sleep(900);
+  await evaluate(`document.querySelector('.leaflet-control-zoom-in').click()`); await sleep(1200);
+  const moved = await viewSig();
+  await evaluate(`document.querySelector('input[data-toggle="hideRejected"]').click()`); await sleep(900);
+  check('ocultar descartados no mueve el mapa', await viewSig() === moved, await viewSig() + ' vs ' + moved);
+  await evaluate(`document.querySelector('input[data-toggle="hideRejected"]').click()`); await sleep(900);
+  check('volver a mostrarlos tampoco', await viewSig() === moved, await viewSig() + ' vs ' + moved);
+  await evaluate(`(() => { const s = document.getElementById('search'); s.value = 'siza'; s.dispatchEvent(new Event('input', { bubbles: true })); })()`); await sleep(900);
+  check('buscar no mueve el mapa', await viewSig() === moved, await viewSig() + ' vs ' + moved);
+  await evaluate(`(() => { const s = document.getElementById('search'); s.value = ''; s.dispatchEvent(new Event('input', { bubbles: true })); })()`); await sleep(900);
+  await evaluate(`document.querySelector('[data-action="filter"][data-filter="curado"]').click()`); await sleep(900);
+  check('cambiar de pestaña tampoco', await viewSig() === moved, await viewSig() + ' vs ' + moved);
+  await evaluate(`document.querySelector('[data-action="filter"][data-filter="todos"]').click()`); await sleep(700);
+  check('la leyenda avisa de los puntos que quedan fuera del encuadre', (await evaluate(text('#map-note'))).includes('fuera del encuadre'), await evaluate(text('#map-note')));
+  await evaluate(`document.querySelector('[data-action="fit-map"]').click()`); await sleep(1500);
+  check('"ajustar vista" sí re-encuadra', await viewSig() !== moved, await viewSig() + ' vs ' + moved);
+
+  // ---- filtro de precisión
+  const impreciseCount = Number((await evaluate(text('[data-action="filter"][data-filter="impreciso"]'))).replace(/\D+/g, ''));
+  check('hay pestaña "Sin localizar" con su cuenta', impreciseCount >= 1, String(impreciseCount));
+  await evaluate(`document.querySelector('[data-action="view"][data-view="lista"]').click()`); await sleep(500);
+  await evaluate(`document.querySelector('[data-action="filter"][data-filter="impreciso"]').click()`); await sleep(700);
+  const shownNames = await evaluate(`Array.from(document.querySelectorAll('#list .lm .name, #list .lm b, #list .lm')).map(e => e.textContent).join(' ')`);
+  check('el filtro deja solo los imprecisos', await evaluate(count('#list .lm')) === impreciseCount && shownNames.includes('Fantasma'),
+    await evaluate(count('#list .lm')) + ' de ' + impreciseCount);
+  check('y explica qué hacer con ellos', (await evaluate(text('#list .banner'))).includes('no están situados con precisión'));
+  await evaluate(`document.querySelector('[data-action="filter"][data-filter="todos"]').click()`); await sleep(500);
+  await evaluate(`document.querySelector('[data-action="view"][data-view="fotos"]').click()`); await sleep(500);
+
   // ---- ficha: add a picture by URL, remove it, delete a landmark with Supr
   await evaluate(`document.querySelector('[data-action="view"][data-view="fotos"]').click()`); await sleep(400);
   await evaluate(`document.querySelector('.card .pic').click()`); await sleep(400);

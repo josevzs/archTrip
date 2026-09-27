@@ -259,8 +259,11 @@
   // with fresh data and no runtime DOM inside it.
   const PRISTINE_HTML = STANDALONE ? '<!DOCTYPE html>\n' + document.documentElement.outerHTML : null;
 
-  const FILTERS = ['todos', 'pendiente', 'curado', 'posible', 'descartado'];
-  const FILTER_LABEL = { todos: 'Todos', pendiente: 'Pendientes', curado: 'Curados', posible: 'Posibles', descartado: 'Descartados' };
+  const FILTERS = ['todos', 'pendiente', 'curado', 'posible', 'descartado', 'impreciso'];
+  const FILTER_LABEL = { todos: 'Todos', pendiente: 'Pendientes', curado: 'Curados', posible: 'Posibles', descartado: 'Descartados',
+                         impreciso: 'Sin localizar' };
+  // 'impreciso' no es un estado de curado: son los hitos cuyo punto en el mapa no es de fiar
+  // (se usó el centro de la ciudad, no se encontró nada, o ni siquiera se ha buscado todavía).
   const VIEWS = { fotos: 'Fotos', arquitectos: 'Arquitectos', mapa: 'Mapa', lista: 'Lista', itinerario: 'Itinerario' };
   const COLORS = { pendiente: '#111', curado: '#2e7d4f', posible: '#b8860b', descartado: '#999' };
   const LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
@@ -607,16 +610,20 @@
   }
 
   function counts() {
-    const c = { todos: state.landmarks.length, pendiente: 0, curado: 0, posible: 0, descartado: 0 };
-    state.landmarks.forEach((lm) => { c[lm.status] = (c[lm.status] || 0) + 1; });
+    const c = { todos: state.landmarks.length, pendiente: 0, curado: 0, posible: 0, descartado: 0, impreciso: 0 };
+    state.landmarks.forEach((lm) => {
+      c[lm.status] = (c[lm.status] || 0) + 1;
+      if (!located(lm) && !(state.hideRejected && lm.status === 'descartado')) c.impreciso += 1;
+    });
     return c;
   }
 
   function tabsView() {
     const c = counts();
     if (state.hideRejected) c.todos -= c.descartado;
-    return FILTERS.map((f) => '<button class="' + (state.filter === f ? 'on' : '') + '" data-action="filter" data-filter="' + f + '">'
-      + FILTER_LABEL[f] + ' ' + c[f] + '</button>').join('')
+    return FILTERS.map((f) => '<button class="' + (state.filter === f ? 'on' : '') + '" data-action="filter" data-filter="' + f + '"'
+      + (f === 'impreciso' ? ' title="Hitos situados solo por el centro de su ciudad, no encontrados, o todavía sin buscar: el punto del mapa y el tiempo en coche no son de fiar"' : '')
+      + '>' + FILTER_LABEL[f] + ' ' + c[f] + '</button>').join('')
       + '<label class="check" title="Los descartados solo se ven en su pestaña"><input type="checkbox" data-toggle="hideRejected" ' + (state.hideRejected ? 'checked' : '') + '> ocultar descartados</label>';
   }
 
@@ -626,7 +633,8 @@
 
   function visibleLandmarks() {
     const needle = state.query.trim().toLowerCase();
-    return state.landmarks.filter((lm) => (state.filter === 'todos' || lm.status === state.filter)
+    return state.landmarks.filter((lm) => (state.filter === 'todos' || state.filter === 'impreciso' || lm.status === state.filter)
+      && (state.filter !== 'impreciso' || !located(lm))
       && !(state.hideRejected && state.filter !== 'descartado' && lm.status === 'descartado')
       && (!needle || (lm.name + ' ' + lm.architect + ' ' + lm.city).toLowerCase().indexOf(needle) >= 0));
   }
@@ -775,7 +783,10 @@
     if (!state.landmarks.length) {
       return '<div class="empty">' + (STANDALONE ? 'Este viaje no tiene hitos.' : 'Descarga la plantilla de hitos, rellénala y súbela aquí.') + '</div>';
     }
-    if (!items.length) return '<div class="empty">Nada que mostrar con este filtro.</div>';
+    if (!items.length) {
+      return '<div class="empty">' + (state.filter === 'impreciso'
+        ? 'Todos los hitos están localizados con precisión.' : 'Nada que mostrar con este filtro.') + '</div>';
+    }
     return null;
   }
 
@@ -904,15 +915,19 @@
     const items = visibleLandmarks();
     const empty = emptyView(items);
     if (empty) return empty;
+    const warn = state.filter === 'impreciso'
+      ? '<div class="banner small">Estos hitos no están situados con precisión: el mapa usa el centro de su ciudad '
+        + '(o no se encontraron). Ábrelos y usa <b>editar</b> para pegar latitud y longitud, o <b>Volver a localizar</b>.</div>'
+      : '';
     if (state.view === 'fotos') {
-      return groups(items).map((g) => '<div class="group-head">' + groupTitle(g) + ' <span class="muted">· ' + g.items.length + '</span></div>'
+      return warn + groups(items).map((g) => '<div class="group-head">' + groupTitle(g) + ' <span class="muted">· ' + g.items.length + '</span></div>'
         + '<div class="grid">' + g.items.map(cardView).join('') + '</div>').join('');
     }
     if (state.view === 'arquitectos') {
-      return architectGroups(items).map((g) => '<div class="group-head">' + esc(g.name) + ' <span class="muted">· ' + g.items.length + '</span></div>'
+      return warn + architectGroups(items).map((g) => '<div class="group-head">' + esc(g.name) + ' <span class="muted">· ' + g.items.length + '</span></div>'
         + '<div class="grid">' + g.items.map(cardView).join('') + '</div>').join('');
     }
-    return groups(items).map((g) => '<div class="group-head">' + groupTitle(g) + ' <span class="muted">· ' + g.items.length + '</span></div>'
+    return warn + groups(items).map((g) => '<div class="group-head">' + groupTitle(g) + ' <span class="muted">· ' + g.items.length + '</span></div>'
       + g.items.map(landmarkView).join('')).join('');
   }
 
@@ -1044,7 +1059,11 @@
     }
     const hidden = items.length - shown.length;
     const legend = Object.keys(COLORS).map((s) => '<span><i style="background:' + COLORS[s] + '"></i>' + FILTER_LABEL[s] + '</span>').join('');
-    document.getElementById('map-note').innerHTML = legend + '<span class="muted">' + shown.length + ' hitos en el mapa'
+    const off = shown.length && pts.length ? shown.filter((lm) => !mapState.map.getBounds().contains([lm.lat, lm.lon])).length : 0;
+    document.getElementById('map-note').innerHTML = legend
+      + '<button class="link" data-action="fit-map" title="Encuadra el mapa sobre lo que se está mostrando">ajustar vista</button>'
+      + '<span class="muted">' + shown.length + ' hitos en el mapa'
+      + (off ? ' · ' + off + ' fuera del encuadre actual' : '')
       + (hidden ? ' · ' + hidden + ' sin localizar con precisión no se muestran (ver Lista)' : '')
       + (far ? ' · <span class="warn">' + far + ' muy lejos de la ruta (relleno rojo): probablemente mal localizados, corrígelos con editar</span>' : '') + '</span>';
   }
@@ -1571,7 +1590,8 @@
       try { state.trip = await store.renameTrip(state.trip.id, name.trim()); render(); } catch (e) { fail(e); renderList(); }
     },
     'pick-file': (el) => { app.querySelector('input[data-upload="' + el.dataset.kind + '"]').click(); },
-    'filter': (el) => { state.filter = el.dataset.filter; mapState.fitted = false; renderList(); },
+    'filter': (el) => { state.filter = el.dataset.filter; renderList(); },
+    'fit-map': () => { mapState.fitted = false; renderMap(); },
     'view': (el) => {
       state.view = el.dataset.view;
       try { localStorage.setItem('archtrip:view', state.view); } catch (e) { /* ignore */ }
@@ -1683,8 +1703,7 @@
     if (toggle) {
       state[toggle.dataset.toggle] = toggle.checked;
       try { localStorage.setItem('archtrip:' + toggle.dataset.toggle, toggle.checked ? '1' : '0'); } catch (x) { /* ignore */ }
-      mapState.fitted = false;
-      renderList();
+      renderList();     // el mapa mantiene el encuadre: solo se repintan los puntos
       if (state.detail != null) { if (!orderedVisible().some((x) => x.id === state.detail)) { const first = orderedVisible()[0]; state.detail = first ? first.id : null; } renderDetail(); }
       return;
     }
@@ -1704,7 +1723,7 @@
       return;
     }
     if (e.target.id === 'search') {
-      state.query = e.target.value; mapState.fitted = false;
+      state.query = e.target.value;
       if (state.view === 'mapa') renderMap(); else document.getElementById('list').innerHTML = listView();
     }
   });

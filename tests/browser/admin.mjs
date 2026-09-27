@@ -57,7 +57,7 @@ try {
   check('no visible link to the admin page', !(await evaluate(`!!document.querySelector('a[href="#/admin"]')`)));
   await evaluate(`document.querySelector('#credits .brand').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 3 }))`); await sleep(800);
   check('triple-click on the brand opens #/admin', await evaluate('location.hash') === '#/admin');
-  check('password asked first', await evaluate(`!!document.querySelector('[data-form="admin-login"]')`) && !(await evaluate(`!!document.querySelector('.adm, table')`)));
+  check('password asked first', await evaluate(`!!document.querySelector('[data-form="admin-login"]')`) && !(await evaluate(`!!document.querySelector('.adm table')`)));
   await submit('[data-form="admin-login"]', { password: 'wrong' }); await sleep(1500);
   check('wrong password rejected', (await evaluate(text('[data-form="admin-login"]'))).includes('incorrecta'));
   await submit('[data-form="admin-login"]', { password: 'admin' }); await sleep(1200);

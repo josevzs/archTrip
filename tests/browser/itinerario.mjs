@@ -54,6 +54,7 @@ try {
     if (msg.method === 'Runtime.consoleAPICalled' && msg.params.type === 'error') consoleErrors.push(msg.params.args.map((a) => a.value || a.description).join(' '));
   });
   // limpia el itinerario que haya quedado de una ejecución anterior
+  const totalLandmarks = (await (await fetch(`${BASE}/api/trips/${TRIP}`)).json()).landmarks.length;
   const existing = (await (await fetch(`${BASE}/api/trips/${TRIP}`)).json()).days || [];
   for (const d of existing) await fetch(`${BASE}/api/days/${d.id}`, { method: 'DELETE' });
 
@@ -152,7 +153,7 @@ try {
   await evaluate(`document.querySelector('[data-action="view"][data-view="itinerario"]').click()`); await sleep(700);
   await evaluate(`window.confirm = () => true; document.querySelector('${D1} [data-action="day-delete"]').click()`); await sleep(1400);
   check('el día se borra y los hitos siguen en el viaje', await evaluate(count('.dayc')) === 1
-    && (await (await fetch(`${BASE}/api/trips/${TRIP}`)).json()).landmarks.length === 3, await evaluate(count('.dayc')));
+    && (await (await fetch(`${BASE}/api/trips/${TRIP}`)).json()).landmarks.length === totalLandmarks, await evaluate(count('.dayc')));
 
   check('sin errores de consola', consoleErrors.length === 0, JSON.stringify(consoleErrors).slice(0, 600));
 } catch (e) {

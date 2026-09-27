@@ -80,7 +80,11 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
      (se guarda reducido en `data/uploads/` y viaja dentro de la copia HTML). "Eliminar hito del
      todo" (o la tecla `Supr`) lo quita del viaje definitivamente — descartar solo lo aparta.
    En todas: pestañas por estado, buscador, y los botones ✓ Curar / ? Posible / ✗ Descartar
-   (pulsar el activo lo devuelve a pendiente).
+   (pulsar el activo lo devuelve a pendiente). La pestaña **Sin localizar** reúne los hitos cuyo
+   punto no es de fiar —se usó el centro de la ciudad, no se encontró nada o aún no se ha
+   buscado— para corregirlos de una sentada con *editar* o *Volver a localizar*. En el mapa,
+   filtrar, buscar u ocultar descartados **no cambia el encuadre**: solo se repintan los puntos,
+   y si algo queda fuera de pantalla la leyenda lo dice y **ajustar vista** vuelve a encuadrar.
 5. **Itinerario** (la quinta pestaña): monta el viaje día a día.
    - **Añadir día** crea el día siguiente al último (el primero toma la fecha de hoy). Cada día
      lleva **fecha** de calendario, un **título** opcional («Llegada», «Nara → Kioto»), la
