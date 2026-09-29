@@ -202,9 +202,8 @@ try {
 
   // el mismo botón en el popup del mapa
   await evaluate(`document.querySelector('[data-action="view"][data-view="mapa"]').click()`); await sleep(4000);
-  // el primer .leaflet-interactive puede ser la línea de la ruta: se prueban todos hasta que abra una ficha
   for (let i = 0; i < 6 && !(await evaluate(count('.leaflet-popup [data-action="toggle-day"]'))); i++) {
-    await evaluate(`(() => { const el = document.querySelectorAll('.leaflet-interactive')[${i}]; if (el) el.dispatchEvent(new MouseEvent('click', {bubbles:true})); })()`);
+    await evaluate(`(() => { const el = document.querySelectorAll('.lmicon')[${i}]; if (el) el.dispatchEvent(new MouseEvent('click', {bubbles:true})); })()`);
     await sleep(900);
   }
   check('el popup del mapa también lo ofrece', await evaluate(count('.leaflet-popup [data-action="toggle-day"]')) === 1);
@@ -214,24 +213,45 @@ try {
   check('y asigna desde el mapa sin cerrar el popup', Math.abs(mapAfter - mapBefore) === 1 && await evaluate(count('.leaflet-popup')) === 1,
     mapBefore + ' -> ' + mapAfter);
 
-  // ---- en el mapa se distingue lo que ya está colocado
-  const fills = async () => evaluate(`JSON.stringify([...document.querySelectorAll('.leaflet-interactive')]
-      .filter(p => p.getAttribute('stroke') && p.getAttribute('fill') !== 'none')
-      .map(p => p.getAttribute('fill') + '@' + p.getAttribute('fill-opacity')))`);
+  // ---- en el mapa se ve, dentro del marcador, a qué día está asignado cada hito
+  const icons = async () => evaluate(`JSON.stringify([...document.querySelectorAll('.lmicon')].map(e => (e.textContent || '-') + '@' + e.style.background))`);
   await evaluate(`(() => { const s = document.getElementById('search'); s.value = 'hist'; s.dispatchEvent(new Event('input', { bubbles: true })); })()`); await sleep(1500);
   // abre su ficha en el mapa y la deja fuera de todos los días, venga como venga
-  await evaluate(`(() => { const p = document.querySelector('.leaflet-interactive[stroke]:not([fill="none"])'); p.dispatchEvent(new MouseEvent('click', {bubbles:true})); })()`); await sleep(1100);
+  await evaluate(`document.querySelector('.lmicon').dispatchEvent(new MouseEvent('click', {bubbles:true}))`); await sleep(1100);
   if (await evaluate(count('.leaflet-popup [data-action="toggle-day"].on'))) {
     await evaluate(`document.querySelector('.leaflet-popup [data-action="toggle-day"]').click()`); await sleep(1400);
   }
-  check('sin día, el marcador va hueco', JSON.parse(await fills())[0].startsWith('#fff'), await fills());
+  check('sin día, el marcador va hueco y sin número', JSON.parse(await icons())[0] === '-@rgb(255, 255, 255)', await icons());
   await evaluate(`document.querySelector('.leaflet-popup [data-action="toggle-day"]').click()`); await sleep(1400);
-  const relleno = JSON.parse(await fills());
-  check('al meterlo en un día el marcador se rellena', relleno[0].endsWith('@1') && !relleno[0].startsWith('#fff'), JSON.stringify(relleno));
-  check('y la leyenda lo explica', (await evaluate(text('#map-note'))).includes('ya en un día'));
+  const marca = JSON.parse(await icons())[0];
+  const activo = (await evaluate(text('.daybar button.on'))).match(/^D(\d+)/)[1];
+  check('al meterlo en un día, el marcador lleva su número', marca.startsWith(activo + '@') && !marca.includes('255, 255, 255'),
+    marca + ' (día activo ' + activo + ')');
+  check('y la leyenda lo explica', (await evaluate(text('#map-note'))).includes('día 1, 2, 3'));
   await evaluate(`document.querySelector('.leaflet-popup [data-action="toggle-day"]').click()`); await sleep(1400);
-  check('quitarlo lo devuelve a hueco', JSON.parse(await fills())[0].startsWith('#fff'), await fills());
+  check('quitarlo lo devuelve a hueco', JSON.parse(await icons())[0] === '-@rgb(255, 255, 255)', await icons());
   await evaluate(`(() => { const s = document.getElementById('search'); s.value = ''; s.dispatchEvent(new Event('input', { bubbles: true })); })()`); await sleep(900);
+
+  // ---- escribir una fecha no interrumpe: el campo no pierde el foco a media edición
+  await evaluate(`document.querySelector('[data-action="view"][data-view="itinerario"]').click()`); await sleep(800);
+  const fecha = `${D1} input[type=date]`;
+  await evaluate(`(() => {
+      const el = document.querySelector(${JSON.stringify(fecha)});
+      el.focus();
+      // así teclea Chrome un año: cada dígito deja una fecha completa y dispara 'change'
+      ['0002-04-12', '0020-04-12', '0202-04-12', '2029-04-12'].forEach((v) => {
+        el.value = v; el.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    })()`);
+  await sleep(600);
+  check('el campo de fecha sigue enfocado mientras se escribe',
+    await evaluate(`document.activeElement === document.querySelector(${JSON.stringify(fecha)})`)
+    && await evaluate(`document.querySelector(${JSON.stringify(fecha)}).value`) === '2029-04-12');
+  await sleep(1400);
+  const guardada = (await (await fetch(`${BASE}/api/trips/${TRIP}`)).json()).days.find((d) => String(d.id) === days[0].id).date;
+  check('solo se guarda la fecha final', guardada === '2029-04-12', guardada);
+  await evaluate(`document.querySelector(${JSON.stringify(fecha)}).blur()`); await sleep(900);
+  check('al salir del campo la vista se reordena', await evaluate(count('.dayc')) === 2);
 
   // ---- export
   const pdf = await (await fetch(`${BASE}/api/trips/${TRIP}/export/itinerario`)).arrayBuffer();

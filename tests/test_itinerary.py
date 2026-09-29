@@ -341,3 +341,18 @@ def test_photos_are_prefetched_one_by_one_and_cached_on_disk(client, fake_geo, m
     monkeypatch.setattr(export.requests, "get", boom)
     gallery = client.get(f"/api/trips/{tid}/export/itinerario?fotos=1")
     assert gallery.status_code == 200 and len(gallery.data) > len(client.get(f"/api/trips/{tid}/export/itinerario").data)
+
+
+def test_gallery_photos_share_the_same_width_without_stretching():
+    """Las verticales quedan más altas, no más estrechas; solo se estrecha lo que no cabría."""
+    from archtrip.export import photo_size
+
+    apaisada = photo_size(1200, 800, 34, 60)
+    vertical = photo_size(800, 1200, 34, 60)
+    assert apaisada[0] == vertical[0] == 34                    # mismo ancho
+    assert round(apaisada[1], 2) == 22.67 and round(vertical[1], 2) == 51.0
+    assert round(apaisada[0] / apaisada[1], 3) == round(1200 / 800, 3)     # sin deformar
+    assert round(vertical[0] / vertical[1], 3) == round(800 / 1200, 3)
+    muy_alta = photo_size(400, 1600, 34, 60)                   # esta sí se estrecha, tope de alto
+    assert muy_alta[1] == 60 and muy_alta[0] < 34
+    assert photo_size(0, 0, 34, 60) is None

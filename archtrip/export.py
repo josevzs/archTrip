@@ -449,7 +449,18 @@ def _pdf_thumb(raw, box_px=420):
     return out.getvalue()
 
 
-def _photo_flowable(url, cache, width, height):
+def photo_size(w, h, width, max_height):
+    """Todas las fotos salen con el MISMO ancho —si no, las verticales quedan canijas— y la
+    altura que les toque, sin deformarlas. Solo se estrecha una foto si se saldría de alto."""
+    if not w or not h:
+        return None
+    scale = width / w
+    if h * scale > max_height:
+        scale = max_height / h
+    return w * scale, h * scale
+
+
+def _photo_flowable(url, cache, width, max_height):
     raw = photo_bytes(url, cache)
     if not raw:
         return None
@@ -461,9 +472,8 @@ def _photo_flowable(url, cache, width, height):
             cache[key] = raw
     small = cache[key]
     try:
-        w, h = ImageReader(io.BytesIO(small)).getSize()      # solo para medirla
-        scale = min(width / w, height / h)
-        return Image(io.BytesIO(small), width=w * scale, height=h * scale)
+        size = photo_size(*ImageReader(io.BytesIO(small)).getSize(), width, max_height)
+        return Image(io.BytesIO(small), width=size[0], height=size[1]) if size else None
     except Exception:
         return None
 
@@ -557,7 +567,7 @@ def itinerary_pdf(payload, gallery=False):
                     cell.append(Paragraph(marks, styles["tag"]))
                 row = [Paragraph(_esc(clean(r["time"])), styles["time"])]
                 if gallery:
-                    row.append(_photo_flowable(r["photo"], photos, 34 * mm, 26 * mm) or
+                    row.append(_photo_flowable(r["photo"], photos, 34 * mm, 60 * mm) or
                                Paragraph("", styles["meta"]))
                 row.append(cell)
                 data.append(row)

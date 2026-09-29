@@ -104,8 +104,9 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
      repasando el mapa o la parrilla de fotos. Con **▾ ocultar** la barra se pliega a una línea
      (`1 de 5 hitos repartidos en 2 días`) y desaparecen los botones ＋ de las fichas, para no
      estorbar mientras se cura; se recuerda plegada hasta que se vuelva a abrir.
-   - En el **mapa**, los hitos que ya están metidos en algún día se pintan **rellenos** y los que
-     faltan quedan **huecos**, con su leyenda: se ve de un golpe lo que queda por colocar.
+   - En el **mapa**, los hitos que ya están metidos en algún día se pintan **rellenos y con el
+     número de su día dentro**; los que faltan quedan **huecos**, con su leyenda. De un vistazo se
+     ve cómo va quedando repartido cada día por el territorio y qué queda por colocar.
    - Desde la **ficha** de cualquier hito hay además un desplegable «añadir a un día…», y dice
      en qué días está ya metido.
    - Cada línea enseña **cómo está curado el hito** —punto de color y etiqueta: *fijo* (verde,
@@ -114,9 +115,12 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
      marcada se resalta y lo dice en claro, también en los PDF.
    - Quitar una línea (✕) no borra el hito del viaje, solo lo saca de ese día; borrar un día
      tampoco borra sus hitos.
+   - Las fechas y las horas se guardan solas al terminar de escribirlas: el día no se recoloca
+     hasta que se sale del campo, así se puede teclear un año entero sin que la lista salte.
 6. **Exportar**:
    - **Itinerario (PDF)**, en dos versiones: **día a día** (compacto, para imprimir o mandar a
-     los alumnos) y **con fotos** (el mismo, con la foto de cada hito al lado). El de fotos
+     los alumnos) y **con fotos** (el mismo, con la foto de cada hito al lado, todas al mismo
+     ancho y sin deformar: las verticales salen más altas). El de fotos
      avisa de lo que está haciendo: primero descarga las que falten, de una en una y con barra
      de progreso —«Descargando fotos para el PDF… 7 de 34», con botón de cancelar—, y después
      genera el documento. Las fotos quedan guardadas en `data/cache/photos`, así que la segunda

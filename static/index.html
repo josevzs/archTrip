@@ -116,6 +116,10 @@
   .leaflet-popup-content .actions { margin-top: 6px; gap: 5px; }
   .leaflet-popup-content .actions button { padding: 3px 7px; font-size: 12px; }
   .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 13px; }
+  .lmicon { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #111; background: #fff;
+            display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+            font: bold 10px "Courier New", Courier, monospace; color: #fff; letter-spacing: -.5px;
+            box-shadow: 0 1px 2px rgba(0,0,0,.3); }
   .clusterico { background: none; border: 0; }
   .clusterico svg { display: block; filter: drop-shadow(0 1px 1px rgba(0,0,0,.35)); }
   .clusterico text { font: bold 12px "Courier New", monospace; fill: #111; }
@@ -265,7 +269,7 @@
 <footer id="credits">
   <span class="brand">archTrip</span>
   <span>José Vargas-Zúñiga Soldevila, 2026</span>
-  <a style="display:none" href="https://ko-fi.com/josevzs" target="_blank" rel="noopener" title="Invítame a un café (Ko-fi)" aria-label="Ko-fi"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 5h14a4 4 0 0 1 0 8h-1.1A6 6 0 0 1 10 18H8a6 6 0 0 1-6-6V6a1 1 0 0 1 1-1zm13 2v4h1a2 2 0 1 0 0-4h-1zM2 20h16v1.5H2z"/></svg></a>
+  <a href="https://ko-fi.com/josevzs" target="_blank" rel="noopener" title="Invítame a un café (Ko-fi)" aria-label="Ko-fi"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 5h14a4 4 0 0 1 0 8h-1.1A6 6 0 0 1 10 18H8a6 6 0 0 1-6-6V6a1 1 0 0 1 1-1zm13 2v4h1a2 2 0 1 0 0-4h-1zM2 20h16v1.5H2z"/></svg></a>
   <a href="https://github.com/josevzs/archTrip" target="_blank" rel="noopener" title="Código y licencia (GitHub)" aria-label="GitHub"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
 </footer>
 <!--ARCHTRIP_DATA-->
@@ -739,13 +743,15 @@
       + (inside ? 'D' + n + ' ✓' : '＋ D' + n) + '</button>';
   }
 
-  // hitos que ya están metidos en algún día: en el mapa se pintan rellenos
-  function assignedIds() {
-    const set = new Set();
-    state.days.forEach((d) => (d.items || []).forEach((it) => { if (it.kind === 'hito') set.add(it.landmark_id); }));
-    return set;
+  // hito -> número del día en el que está (el primero, si está en varios); en el mapa se
+  // pinta relleno con ese número dentro
+  function assignedDays() {
+    const map = new Map();
+    state.days.forEach((d, i) => (d.items || []).forEach((it) => {
+      if (it.kind === 'hito' && !map.has(it.landmark_id)) map.set(it.landmark_id, i + 1);
+    }));
+    return map;
   }
-
   function activeDay() {
     if (STANDALONE || !state.days.length) return null;
     return state.days.find((d) => d.id === state.activeDay) || null;
@@ -769,7 +775,7 @@
       return '<button class="' + (state.activeDay === d.id ? 'on' : 'quiet') + '" data-action="pick-day" data-id="' + d.id + '"'
         + ' title="' + attr(dayLabel(d, i + 1)) + '">' + esc(label) + (hits ? ' (' + hits + ')' : '') + '</button>';
     }).join('');
-    const placed = assignedIds().size;
+    const placed = assignedDays().size;
     if (!state.dayMode) {     // plegada: solo el asa, para que no moleste mientras se cura
       return '<div class="daybar off"><span class="lab">Itinerario</span>'
         + '<span class="muted small">' + placed + ' de ' + state.landmarks.length + ' hitos repartidos en ' + state.days.length + ' días</span>'
@@ -793,7 +799,7 @@
     const lm = state.landmarks.find((x) => x.id === lmId);
     if (state.view === 'mapa') {
       const marker = mapState.markers && mapState.markers[lmId];
-      if (marker) marker.setStyle(markerFill(lm, marker.options.fillColor === '#b3261e'));
+      if (marker && window.L) marker.setIcon(landmarkIcon(window.L, lm, marker.options.offRoute));
       if (marker && marker.isPopupOpen()) marker.setPopupContent(popupView(lm));
       if (mapState.listPopup) openClusterList(mapState.listPopup.latlng, mapState.listPopup.ids);
     } else if (lm) patchCard(lm);
@@ -1180,11 +1186,14 @@
     }).catch((e) => { el.innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; });
   }
 
-  function markerFill(lm, offRoute, placed) {
-    if (offRoute) return { fillColor: '#b3261e', fillOpacity: .9 };
-    return (placed || assignedIds()).has(lm.id)
-      ? { fillColor: COLORS[lm.status] || '#111', fillOpacity: 1 }
-      : { fillColor: '#fff', fillOpacity: .9 };
+  // Un círculo con el color del estado: hueco si el hito no está en ningún día, y relleno con
+  // el número del día si ya está colocado.
+  function landmarkIcon(L, lm, offRoute, placed) {
+    const color = COLORS[lm.status] || '#111';
+    const day = (placed || assignedDays()).get(lm.id);
+    const fill = offRoute ? '#b3261e' : (day ? color : '#fff');
+    return L.divIcon({ className: '', iconSize: [20, 20], iconAnchor: [10, 10],
+      html: '<div class="lmicon" style="border-color:' + color + ';background:' + fill + '">' + (day || '') + '</div>' });
   }
 
   function updateMarkers(L) {
@@ -1207,13 +1216,13 @@
     // keep it on the map (so it can be spotted) but don't let it drive the zoom
     const km = (a, b) => { const r = Math.PI / 180, x = Math.sin((b[0] - a[0]) * r / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin((b[1] - a[1]) * r / 2) ** 2; return 12742 * Math.asin(Math.sqrt(x)); };
     let far = 0;
-    const placed = assignedIds();
+    const placed = assignedDays();
     shown.forEach((lm) => {
       const p = [lm.lat, lm.lon];
       const offRoute = routePts.length > 0 && routePts.every((s) => km(s, p) > 150);
-      // relleno = ya está metido en algún día del itinerario; hueco = todavía sin colocar
-      const m = L.circleMarker(p, Object.assign({ radius: 7, color: COLORS[lm.status] || '#111', weight: 2,
-        status: lm.status, landmarkId: lm.id }, markerFill(lm, offRoute, placed)));
+      // relleno con el número del día si ya está colocado; hueco si todavía no
+      const m = L.marker(p, { icon: landmarkIcon(L, lm, offRoute, placed), status: lm.status, landmarkId: lm.id,
+                              offRoute: offRoute, riseOnHover: true });
       mapState.markers[lm.id] = m;
       m.bindTooltip(lm.architect + ' — ' + lm.name + (offRoute ? ' (¿mal localizado?)' : ''));
       m.bindPopup(() => popupView(state.landmarks.find((x) => x.id === lm.id) || lm), { maxWidth: 280 });
@@ -1227,7 +1236,7 @@
     }
     const hidden = items.length - shown.length;
     const legend = Object.keys(COLORS).map((s) => '<span><i style="background:' + COLORS[s] + '"></i>' + FILTER_LABEL[s] + '</span>').join('')
-      + (state.days.length ? '<span title="El relleno dice si el hito ya está metido en algún día"><i class="hollow"></i>sin día<i class="filled" style="margin-left:10px"></i>ya en un día</span>' : '');
+      + (state.days.length ? '<span title="El número es el día del itinerario al que está asignado"><i class="hollow"></i>sin día<i class="filled" style="margin-left:10px"></i>día 1, 2, 3…</span>' : '');
     const off = shown.length && pts.length ? shown.filter((lm) => !mapState.map.getBounds().contains([lm.lat, lm.lon])).length : 0;
     document.getElementById('map-note').innerHTML = legend
       + '<button class="link" data-action="fit-map" title="Encuadra el mapa sobre lo que se está mostrando">ajustar vista</button>'
@@ -1638,6 +1647,29 @@
   }
 
   // ---- itinerario: acciones y arrastre
+  // ---- guardado de los campos del itinerario sin interrumpir lo que se está escribiendo
+  let fieldTimer = null, fieldPendingRender = false;
+
+  function queueFieldSave(el) {
+    clearTimeout(fieldTimer);
+    fieldTimer = setTimeout(() => saveField(el), 900);
+  }
+
+  async function saveField(el) {
+    clearTimeout(fieldTimer);
+    const id = Number(el.dataset.id), value = el.value;
+    try {
+      if (el.dataset.dayField) {
+        const name = el.dataset.dayField;
+        applyDay(await store.patchDay(id, { [name]: name === 'stop_id' ? (value ? Number(value) : null) : value }));
+      } else {
+        applyDay(await store.patchItem(id, { [el.dataset.itemField]: value }));
+      }
+    } catch (e) { fail(e); }
+    if (document.activeElement === el) fieldPendingRender = true;   // sigue escribiendo: luego
+    else { fieldPendingRender = false; renderList(); }
+  }
+
   async function dayDo(fn) {
     try { await fn(); } catch (e) { fail(e); }
     renderList();
@@ -1864,17 +1896,13 @@
   });
 
   app.addEventListener('change', (e) => {
-    const dayField = e.target.closest('[data-day-field]');
-    if (dayField) {
-      const value = dayField.value;
-      dayDo(async () => applyDay(await store.patchDay(Number(dayField.dataset.id),
-        { [dayField.dataset.dayField]: dayField.dataset.dayField === 'stop_id' ? (value ? Number(value) : null) : value })));
-      return;
-    }
-    const itemField = e.target.closest('[data-item-field]');
-    if (itemField) {
-      const body = { [itemField.dataset.itemField]: itemField.value };
-      dayDo(async () => applyDay(await store.patchItem(Number(itemField.dataset.id), body)));
+    const field = e.target.closest('[data-day-field], [data-item-field]');
+    if (field) {
+      // Los <input type=date|time> disparan 'change' con cada tecla (2026 pasa por 0002, 0020…):
+      // mientras el campo tenga el foco se espera a que el usuario acabe; si el valor viene de
+      // fuera (o ya ha salido del campo) se guarda al momento.
+      const typing = (field.type === 'date' || field.type === 'time') && document.activeElement === field;
+      if (typing) queueFieldSave(field); else saveField(field);
       return;
     }
     const addDay = e.target.closest('select[data-add-day]');
@@ -1901,6 +1929,14 @@
     input.value = '';
     upload(input.dataset.upload, file);
   });
+
+  // blur no burbujea: hay que escucharlo en fase de captura
+  app.addEventListener('blur', (e) => {
+    const field = e.target.closest && e.target.closest('[data-day-field], [data-item-field]');
+    if (!field) return;
+    if (fieldTimer) saveField(field);
+    else if (fieldPendingRender) { fieldPendingRender = false; renderList(); }
+  }, true);
 
   app.addEventListener('input', (e) => {
     if (e.target.dataset && e.target.dataset.pickerInput && state.picker) {
