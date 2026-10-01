@@ -170,6 +170,8 @@
               display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
   .trips ul { padding: 0; margin: 0; }
   .trips .name { font-size: 17px; text-transform: uppercase; flex: 1 1 200px; }
+  .tag.local { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--bg);
+               background: var(--maybe); padding: 2px 6px; vertical-align: middle; }
   .empty { padding: 30px 0; color: var(--muted); }
   .choices { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
   .choice { flex: 1 1 280px; border: 1px solid var(--line); padding: 16px; cursor: pointer; background: var(--bg); text-align: left; }
@@ -324,6 +326,7 @@
   try { savedDayMode = localStorage.getItem('archtrip:dayMode') || '1'; } catch (e) { /* no storage */ }
   const state = {
     screen: 'trips', trips: [], trip: null, stops: [], landmarks: [], days: [], pending: null,
+    publicView: false,      // true cuando se entra desde fuera (túnel): sin administración ni privados
     filter: 'todos', query: '', editing: null, msg: null, view: VIEWS[savedView] ? savedView : 'fotos',
     newMode: null, promptText: null,
     detail: null, detailImg: 0, addingImage: false, picker: null, activeDay: null, dayMode: savedDayMode === '1',
@@ -424,7 +427,10 @@
 
   const api = {
     listTrips: () => call('GET', '/api/trips'),
+    health: () => call('GET', '/api/health'),
     createTrip: (name) => call('POST', '/api/trips', { name }),
+    patchTrip: (id, fields) => call('PATCH', '/api/trips/' + id, fields),
+    copyTrip: (id, body) => call('POST', '/api/trips/' + id + '/copy', body || {}),
     renameTrip: (id, name) => call('PATCH', '/api/trips/' + id, { name }),
     deleteTrip: (id) => call('DELETE', '/api/trips/' + id),
     getTrip: (id) => call('GET', '/api/trips/' + id),
@@ -534,9 +540,15 @@
       + '<div style="margin:18px 0"><a class="btn" href="#/nuevo">＋ Nuevo viaje</a></div>'
       + '<h2>Viajes</h2>'
       + (state.trips.length ? '<div class="trips"><ul>' + state.trips.map((t) =>
-          '<li><span class="name"><a href="#/viaje/' + t.id + '">' + esc(t.name) + '</a></span>'
+          '<li><span class="name"><a href="#/viaje/' + t.id + '">' + esc(t.name) + '</a>'
+          + (t.private ? ' <span class="tag local" title="Este viaje solo se ve desde la red de casa: no sale por el enlace de fuera">solo en local</span>' : '')
+          + '</span>'
           + '<span class="muted small">' + t.stop_count + ' paradas · ' + t.landmark_count + ' hitos · ' + t.curated_count + ' curados</span>'
           + '<a class="btn quiet" href="#/viaje/' + t.id + '">Abrir</a>'
+          + (state.publicView ? '' : '<button class="quiet" data-action="copy-trip" data-id="' + t.id + '" title="Crea una variante con los mismos hitos e itinerario, sin tocar este">Duplicar</button>')
+          + (state.publicView ? '' : '<button class="quiet" data-action="toggle-private" data-id="' + t.id + '" title="'
+             + attr(t.private ? 'Publicarlo: pasará a verse también desde el enlace de fuera' : 'Esconderlo: solo se verá desde la red de casa') + '">'
+             + (t.private ? 'Publicar' : 'Solo local') + '</button>')
           + '<button class="quiet" data-action="delete-trip" data-id="' + t.id + '">Borrar</button></li>'
         ).join('') + '</ul></div>'
         : '<div class="empty">Todavía no hay viajes. Crea el primero arriba.</div>');
@@ -1496,6 +1508,13 @@
     state.screen = 'trips';
     try { state.trips = await store.listTrips(); } catch (e) { fail(e); }
     render();
+    if (!STANDALONE && !state.healthChecked) {     // ¿se está entrando desde fuera?
+      state.healthChecked = true;
+      try {
+        const h = await store.health();
+        if (h.public !== state.publicView) { state.publicView = !!h.public; if (state.screen === 'trips') render(); }
+      } catch (e) { /* da igual: se asume red de casa */ }
+    }
   }
 
   async function loadNewTrip(mode) {
@@ -1798,6 +1817,27 @@
       if (!confirm('¿Sustituir TODOS los datos actuales por la copia ' + name + '?\nEl estado actual se guarda antes como pre-restore-….db, por si hay que volver.')) return;
       adminDo(async () => { const r = await admin.post('/backups/' + encodeURIComponent(name) + '/restore'); return 'Restaurada ' + r.restored + ' (estado previo guardado en ' + r.saved_before + ')'; });
     },
+    'toggle-private': async (el) => {
+      const t = state.trips.find((x) => x.id === Number(el.dataset.id));
+      if (!t) return;
+      if (!t.private && !confirm('¿Dejar «' + t.name + '» solo en la red de casa?\nDesde el enlace de fuera dejará de verse.')) return;
+      if (t.private && !confirm('¿Publicar «' + t.name + '»?\nPasará a verse también desde el enlace de fuera.')) return;
+      try { await store.patchTrip(t.id, { private: !t.private });
+            say(t.private ? '«' + t.name + '» ya se ve desde fuera.' : '«' + t.name + '» queda solo en la red de casa.');
+      } catch (e) { fail(e); }
+      loadTrips();
+    },
+    'copy-trip': async (el) => {
+      const t = state.trips.find((x) => x.id === Number(el.dataset.id));
+      if (!t) return;
+      const name = prompt('Nombre de la variante:', t.name + ' (variante)');
+      if (!name) return;
+      try {
+        const copia = await store.copyTrip(t.id, { name: name.trim(), private: true });
+        say('Copiado «' + t.name + '» con sus ' + copia.landmarks + ' hitos. La variante empieza solo en local: publícala cuando quieras.');
+      } catch (e) { fail(e); }
+      loadTrips();
+    },
     'delete-trip': async (el) => {
       const t = state.trips.find((x) => x.id === Number(el.dataset.id));
       if (!t || !confirm('¿Borrar el viaje "' + t.name + '" con todos sus hitos?')) return;
@@ -1987,7 +2027,7 @@
   }
   window.addEventListener('hashchange', route);
   // the admin page has no visible link: triple-click the brand in the footer
-  if (!STANDALONE) document.querySelector('#credits .brand').addEventListener('click', (e) => { if (e.detail === 3) location.hash = '#/admin'; });
+  if (!STANDALONE) document.querySelector('#credits .brand').addEventListener('click', (e) => { if (e.detail === 3 && !state.publicView) location.hash = '#/admin'; });
   route();
 })();
 </script>

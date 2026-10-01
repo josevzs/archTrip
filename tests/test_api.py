@@ -228,7 +228,7 @@ def test_exports(client, fake_geo):
 
 
 def test_health(client):
-    assert client.get("/api/health").get_json() == {"ok": True}
+    assert client.get("/api/health").get_json() == {"ok": True, "public": False}
 
 
 def test_images_step_attaches_pictures_and_fixes_location(client, fake_geo, monkeypatch):

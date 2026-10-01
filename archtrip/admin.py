@@ -15,7 +15,7 @@ from pathlib import Path
 
 from flask import Blueprint, abort, current_app, jsonify, make_response, request, send_file
 
-from . import audit, excel, export
+from . import access, audit, excel, export
 from .db import get_db, row, rows
 
 adm = Blueprint("admin", __name__)
@@ -38,6 +38,9 @@ def _token():
 
 
 def is_admin():
+    # la administración no existe para quien entra desde fuera, ni con la contraseña
+    if access.is_public_request():
+        return False
     return hmac.compare_digest(request.cookies.get(ADMIN_COOKIE, ""), _token())
 
 
@@ -62,7 +65,7 @@ def login():
     global _last_failed_login
     password = os.environ.get("ARCHTRIP_ADMIN_PASSWORD", "admin")
     given = (request.get_json(silent=True) or {}).get("password", "")
-    if not hmac.compare_digest(given, password):
+    if access.is_public_request() or not hmac.compare_digest(given, password):
         time.sleep(1.0 if time.time() - _last_failed_login < 10 else 0.2)   # blunt brute-force brake
         _last_failed_login = time.time()
         abort(401, description="Contraseña incorrecta")

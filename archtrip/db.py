@@ -7,7 +7,8 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS trips (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    private    INTEGER NOT NULL DEFAULT 0    -- 1 = solo visible desde la red local (access.py)
 );
 
 CREATE TABLE IF NOT EXISTS route_stops (
@@ -129,6 +130,7 @@ MIGRATIONS = [
     ("landmarks", "images_status", "TEXT NOT NULL DEFAULT 'pendiente'"),
     ("landmarks", "links_status", "TEXT NOT NULL DEFAULT 'pendiente'"),
     ("day_items", "needs_confirm", "INTEGER NOT NULL DEFAULT 0"),
+    ("trips", "private", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 

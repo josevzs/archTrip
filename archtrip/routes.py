@@ -3,7 +3,7 @@ import re
 
 from flask import Blueprint, abort, jsonify, request, send_file
 
-from . import audit, enrich, excel, export, prompt, uploads
+from . import access, audit, enrich, excel, export, prompt, uploads
 from .db import get_db, row, rows
 
 api = Blueprint("api", __name__)
@@ -21,7 +21,8 @@ FROM landmarks l LEFT JOIN route_stops s ON s.id = l.nearest_stop_id
 
 def _trip_or_404(db, trip_id):
     t = row(db.execute("SELECT * FROM trips WHERE id = ?", (trip_id,)))
-    if t is None:
+    # un viaje privado no existe para quien entra desde fuera (ver access.py)
+    if t is None or (t["private"] and access.is_public_request()):
         abort(404, description="Viaje no encontrado")
     return t
 
@@ -90,7 +91,7 @@ def _json_error(err):
 @api.get("/health")
 def health():
     get_db().execute("SELECT 1")
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "public": access.is_public_request()})
 
 
 # ------------------------------------------------------------------ trips
@@ -103,8 +104,8 @@ def list_trips():
                (SELECT COUNT(*) FROM landmarks l WHERE l.trip_id = t.id) AS landmark_count,
                (SELECT COUNT(*) FROM landmarks l WHERE l.trip_id = t.id AND l.status = 'curado') AS curated_count,
                (SELECT COUNT(*) FROM route_stops s WHERE s.trip_id = t.id) AS stop_count
-        FROM trips t ORDER BY t.created_at DESC, t.id DESC
-    """)))
+        FROM trips t WHERE (t.private = 0 OR :local) ORDER BY t.created_at DESC, t.id DESC
+    """, {"local": 0 if access.is_public_request() else 1})))
 
 
 @api.post("/trips")
@@ -113,7 +114,8 @@ def create_trip():
     if not name:
         abort(400, description="El viaje necesita un nombre")
     db = get_db()
-    cur = db.execute("INSERT INTO trips (name) VALUES (?)", (name,))
+    private = 1 if (request.get_json(silent=True) or {}).get("private") else 0
+    cur = db.execute("INSERT INTO trips (name, private) VALUES (?, ?)", (name, private))
     audit.log(db, "trip_create", cur.lastrowid, new=name)
     db.commit()
     return jsonify(row(db.execute("SELECT * FROM trips WHERE id = ?", (cur.lastrowid,)))), 201
@@ -129,13 +131,21 @@ def get_trip(trip_id):
 def rename_trip(trip_id):
     db = get_db()
     trip = _trip_or_404(db, trip_id)
-    name = (request.get_json(silent=True) or {}).get("name", "").strip()
-    if not name:
-        abort(400, description="El viaje necesita un nombre")
-    if name != trip["name"]:
-        db.execute("UPDATE trips SET name = ? WHERE id = ?", (name, trip_id))
-        audit.log(db, "trip_rename", trip_id, old=trip["name"], new=name)
-        db.commit()
+    body = request.get_json(silent=True) or {}
+    if "name" in body:
+        name = (body.get("name") or "").strip()
+        if not name:
+            abort(400, description="El viaje necesita un nombre")
+        if name != trip["name"]:
+            db.execute("UPDATE trips SET name = ? WHERE id = ?", (name, trip_id))
+            audit.log(db, "trip_rename", trip_id, old=trip["name"], new=name)
+    if "private" in body:
+        value = 1 if body["private"] else 0
+        if value != trip["private"]:
+            db.execute("UPDATE trips SET private = ? WHERE id = ?", (value, trip_id))
+            audit.log(db, "trip_private", trip_id, old=trip["private"], new=value,
+                      landmark_name=trip["name"])
+    db.commit()
     return jsonify(row(db.execute("SELECT * FROM trips WHERE id = ?", (trip_id,))))
 
 
@@ -147,6 +157,54 @@ def delete_trip(trip_id):
     db.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
     db.commit()
     return "", 204
+
+
+@api.post("/trips/<int:trip_id>/copy")
+def copy_trip(trip_id):
+    """Una variante del viaje: mismas paradas, hitos (con sus fotos) e itinerario, para
+    probar otro recorrido sin tocar el original. Nace privada si se pide."""
+    db = get_db()
+    trip = _trip_or_404(db, trip_id)
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or f"{trip['name']} (copia)").strip()
+    private = 1 if body.get("private") else 0
+
+    new_trip = db.execute("INSERT INTO trips (name, private) VALUES (?, ?)", (name, private)).lastrowid
+    stop_map, lm_map, day_map = {}, {}, {}
+    for s in rows(db.execute("SELECT * FROM route_stops WHERE trip_id = ? ORDER BY position", (trip_id,))):
+        stop_map[s["id"]] = db.execute(
+            "INSERT INTO route_stops (trip_id, position, city, country, notes, lat, lon, geocode_status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (new_trip, s["position"], s["city"], s["country"], s["notes"], s["lat"], s["lon"], s["geocode_status"])
+        ).lastrowid
+    lm_cols = ["name", "architect", "city", "address", "year", "notes", "lat", "lon", "geocode_status",
+               "url_archdaily", "url_av", "url_image1", "url_image2", "status", "drive_minutes", "drive_km",
+               "drive_source", "sort_order", "name_key", "wikidata_id", "wikipedia_url", "images_status",
+               "links_status"]
+    for lm in rows(db.execute("SELECT * FROM landmarks WHERE trip_id = ? ORDER BY sort_order, id", (trip_id,))):
+        lm_map[lm["id"]] = db.execute(
+            f"INSERT INTO landmarks (trip_id, nearest_stop_id, {', '.join(lm_cols)}) "
+            f"VALUES (?, ?, {', '.join('?' * len(lm_cols))})",
+            [new_trip, stop_map.get(lm["nearest_stop_id"])] + [lm[c] for c in lm_cols]).lastrowid
+        for im in rows(db.execute("SELECT * FROM landmark_images WHERE landmark_id = ? ORDER BY position, id",
+                                  (lm["id"],))):
+            db.execute("INSERT INTO landmark_images (landmark_id, kind, url, thumb, title, page_url, source, position) "
+                       "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                       (lm_map[lm["id"]], im["kind"], im["url"], im["thumb"], im["title"], im["page_url"],
+                        im["source"], im["position"]))
+    for d in rows(db.execute("SELECT * FROM trip_days WHERE trip_id = ? ORDER BY position, id", (trip_id,))):
+        day_map[d["id"]] = db.execute(
+            "INSERT INTO trip_days (trip_id, date, position, stop_id, title, notes) VALUES (?, ?, ?, ?, ?, ?)",
+            (new_trip, d["date"], d["position"], stop_map.get(d["stop_id"]), d["title"], d["notes"])).lastrowid
+        for it in rows(db.execute("SELECT * FROM day_items WHERE day_id = ? ORDER BY position, id", (d["id"],))):
+            db.execute("INSERT INTO day_items (day_id, position, at_time, kind, landmark_id, text, needs_confirm) "
+                       "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                       (day_map[d["id"]], it["position"], it["at_time"], it["kind"],
+                        lm_map.get(it["landmark_id"]), it["text"], it["needs_confirm"]))
+    audit.log(db, "trip_create", new_trip, new=name, landmark_name=f"copia de «{trip['name']}»")
+    db.commit()
+    return jsonify(dict(row(db.execute("SELECT * FROM trips WHERE id = ?", (new_trip,))),
+                        copied_from=trip_id, landmarks=len(lm_map), stops=len(stop_map), days=len(day_map))), 201
 
 
 # -------------------------------------------------------------- templates

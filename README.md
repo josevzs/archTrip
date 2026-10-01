@@ -175,6 +175,21 @@ Osaka → Tokio con ~300 hitos. La columna Notas conserva la prioridad del profe
 los avisos ([R] reserva, [E] solo exterior, [X] no visitable) y sus comentarios. Sirve para
 probar la herramienta con volumen real: subirlos a un viaje nuevo y dejar que localice.
 
+## Variantes y viajes solo en local
+
+- **Duplicar** (botón en la lista de viajes) crea una **variante** con las mismas paradas, los
+  mismos hitos —con su curado, sus fotos y sus tiempos— y el mismo itinerario, pero
+  independiente: tocar la copia no mueve el original ni al revés. Sirve para probar otro
+  recorrido sin arriesgar el viaje bueno.
+- Un viaje puede quedarse **solo en local**: se ve desde la red de casa pero **no existe** para
+  quien entre por el enlace de fuera (el túnel de Tailscale) — ni en la lista, ni abriéndolo por
+  su dirección, ni en las exportaciones. Las variantes nacen así, y se publican con un clic
+  («Publicar» en la lista). La etiqueta amarilla *solo en local* lo recuerda.
+- La página de administración tampoco responde desde fuera, ni con la contraseña correcta.
+- Se distingue por el nombre con el que se pide la página: lo que acabe en `.ts.net` cuenta como
+  «desde fuera». Se puede cambiar con la variable de entorno `ARCHTRIP_PUBLIC_HOSTS`
+  (lista separada por comas).
+
 ## Copias de seguridad
 
 `scripts/backup.sh` guarda en `data/backups/` una instantánea consistente de la base de datos
