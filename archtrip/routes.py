@@ -459,10 +459,16 @@ def add_image(lm_id):
             abort(400, description=str(exc))
         title, page_url = f.filename, None
     else:
-        url = ((request.get_json(silent=True) or {}).get("url") or request.form.get("url") or "").strip()
+        body = request.get_json(silent=True) or {}
+        url = (body.get("url") or request.form.get("url") or "").strip()
         if not uploads.is_http_url(url):
             abort(400, description="Pega una dirección que empiece por http:// o https://, o elige un archivo")
-        thumb, title, page_url = url, url.rsplit("/", 1)[-1][:120] or "imagen", url
+        # opcionales, para cuando se conoce la miniatura y la página de origen (crédito)
+        thumb = (body.get("thumb") or "").strip() or url
+        title = (body.get("title") or "").strip() or url.rsplit("/", 1)[-1][:120] or "imagen"
+        page_url = (body.get("page_url") or "").strip() or url
+        if thumb != url and not uploads.is_http_url(thumb):
+            abort(400, description="La miniatura tiene que ser otra dirección http(s)")
     pos = db.execute("SELECT COALESCE(MIN(position), 0) - 1 FROM landmark_images WHERE landmark_id = ?",
                      (lm_id,)).fetchone()[0]
     cur = db.execute("INSERT INTO landmark_images (landmark_id, kind, url, thumb, title, page_url, source, position) "

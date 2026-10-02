@@ -416,3 +416,22 @@ def test_route_stops_get_a_photo_and_can_be_changed_by_hand(client, fake_geo):
     assert [c["landmark_name"] for c in cambios] == ["Lisboa", "Lisboa", "Oporto"]   # la URL inválida no cuenta
     assert client.post(f"/api/admin/changes/{cambios[1]['id']}/revert").get_json()["result"] == "revertido"
     assert client.get(f"/api/trips/{tid}").get_json()["stops"][1]["photo_url"] == "https://example.com/lisboa.jpg"
+
+
+def test_manual_photo_can_carry_its_thumbnail_and_credit(client, fake_geo):
+    tid = new_trip(client)
+    upload(client, f"/api/trips/{tid}/landmarks", make_xlsx(LANDMARK_HEADER, LANDMARK_ROWS[:1]))
+    lm = client.get(f"/api/trips/{tid}").get_json()["landmarks"][0]
+    r = client.post(f"/api/landmarks/{lm['id']}/images", json={
+        "url": "https://commons.wikimedia.org/wiki/Special:FilePath/Casa.jpg?width=1600",
+        "thumb": "https://commons.wikimedia.org/wiki/Special:FilePath/Casa.jpg?width=640",
+        "title": "Casa.jpg", "page_url": "https://commons.wikimedia.org/wiki/File:Casa.jpg"})
+    im = r.get_json()["images"][0]
+    assert im["thumb"].endswith("width=640") and im["url"].endswith("width=1600")
+    assert (im["title"], im["source"]) == ("Casa.jpg", "manual")
+    assert im["page_url"] == "https://commons.wikimedia.org/wiki/File:Casa.jpg"
+    # sin extras sigue funcionando igual que antes
+    im2 = client.post(f"/api/landmarks/{lm['id']}/images", json={"url": "https://example.com/otra.jpg"}).get_json()["images"][0]
+    assert im2["thumb"] == im2["url"] == "https://example.com/otra.jpg" and im2["title"] == "otra.jpg"
+    assert client.post(f"/api/landmarks/{lm['id']}/images",
+                       json={"url": "https://example.com/a.jpg", "thumb": "no-es-url"}).status_code == 400
