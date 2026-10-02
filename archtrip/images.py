@@ -17,6 +17,9 @@ import requests
 from .geo import haversine_km
 
 WIKIDATA_API = "https://www.wikidata.org/w/api.php"
+WIKIPEDIA_API = "https://%s.wikipedia.org/w/api.php"
+WIKI_KM = 25                        # buscando por texto hay que apretar más que en Wikidata
+WIKI_LANGS = ("es", "en", "ja")      # el profesor escribe en español; el edificio suele estar en ja
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 # Wikimedia's policy wants a contact in the User-Agent; override with ARCHTRIP_CONTACT.
 USER_AGENT = "archTrip/0.1 (%s)" % os.environ.get("ARCHTRIP_CONTACT", "https://github.com/josevzs/archTrip; herramienta docente")
@@ -26,7 +29,8 @@ MAX_PHOTOS = 8
 MAX_DRAWINGS = 6
 THUMB_WIDTH = 640
 LARGE_WIDTH = 1600
-NEAR_KM = 60                # a Wikidata hit must sit this close to the landmark's known position
+NEAR_KM = 30                # a Wikidata hit must sit this close to the landmark: más lejos ya es
+                            # otro sitio con el mismo nombre (el Kōmyō-in de Sakai, no el de Kioto)'s known position
 
 DRAWING_WORDS = re.compile(
     r"\b(plan|plans|section|elevation|drawing|sketch|diagram|floor ?plan|layout|axonometr\w*|"
@@ -36,12 +40,17 @@ DRAWING_WORDS = re.compile(
 BAD_HIT = re.compile(r"exhibition|album|song|single|film|novel|painting|metro station|railway station|"
                      r"subway station|train station|disambiguation|family name|given name|surname|"
                      r"magazine|periodical|journal|newspaper|encyclopedia|manga|anime|video game|"
+                     r"company|corporation|manufacturer|brand|empresa|compa[ñn][íi]a|marca|fabricante|"
                      r"concept|term for|unit of|type of", re.I)
 # oficios y cargos: descartan la ficha solo si además no suena a edificio, porque la descripción
 # de un edificio suele nombrar a su autor ("villa by architect X")
+# en inglés y en español: la Wikipedia en español es la primera que se consulta
 PERSON_WORDS = re.compile(r"\b(architect|emperor|empress|politician|writer|poet|novelist|photographer|"
                           r"monk|samurai|actor|actress|musician|composer|painter|designer|scientist|"
-                          r"engineer|businessman|daimyo|shogun)\b", re.I)
+                          r"engineer|businessman|daimyo|shogun|"
+                          r"arquitecto|emperador|emperatriz|pol[ií]tic[oa]|escritor|poeta|novelista|"
+                          r"fot[óo]grafo|monje|samur[áa]i|actriz|m[úu]sico|compositor|pintor|"
+                          r"dise[ñn]ador|cient[íi]fic[oa]|ingeniero|cal[íi]grafo|empresario)\w*", re.I)
 BUILDING_WORDS = re.compile(
     r"building|museum|temple|shrine|church|cathedral|tower|station|hall|house|villa|castle|library|"
     r"theat(re|er)|stadium|gymnasium|arena|park|garden|hotel|store|shop|school|university|college|"
@@ -150,8 +159,11 @@ def _fold(text):
 # "ciudad de X" no es el edificio aunque caiga al lado. Las descripciones de Wikidata empiezan
 # por el tipo ("neighborhood in Kyoto"), así que se ancla al principio: "building in Porto,
 # Porto District, Portugal" no es un barrio, solo lleva el distrito en la dirección.
-ADMIN_AREA = re.compile(r"^\W*(former\s+|the\s+)*(city|town|village|municipality|ward|prefecture|district|"
-                        r"neighbo(u)?rhood|county|region|island|mountain|river)\b\s*(in|of|,|$)", re.I)
+ADMIN_AREA = re.compile(r"^\W*(former\s+|the\s+|antigu[oa]\s+)*"
+                        r"(city|town|village|municipality|ward|prefecture|district|"
+                        r"neighbo(u)?rhood|county|region|island|mountain|river|"
+                        r"ciudad|pueblo|aldea|municipio|barrio|distrito|prefectura|regi[óo]n|isla|"
+                        r"monta[ñn]a|monte|r[íi]o|localidad)\b\s*(in|of|,|de|del|en|$)", re.I)
 
 
 def _words(text):
@@ -258,12 +270,14 @@ def _files_from_pages(pages):
         if mime not in PICTURE_MIMES or "thumburl" not in ii:   # no djvu/pdf/tiff scans, no video
             continue
         title = p["title"].split(":", 1)[-1]
+        coords = (p.get("coordinates") or [{}])[0]
         out.append({
             "title": title,
             "mime": mime,
             "thumb": ii["thumburl"],
             "url": file_url(title, LARGE_WIDTH),   # a resized copy, never the multi-MB original
             "page_url": ii.get("descriptionurl") or "https://commons.wikimedia.org/wiki/" + quote(p["title"].replace(" ", "_")),
+            "lat": coords.get("lat"), "lon": coords.get("lon"),
         })
     return out
 
@@ -277,7 +291,7 @@ def commons_category_files(category, limit=12):
 
 def commons_search(query, limit=10):
     data = _get(COMMONS_API, {"action": "query", "generator": "search", "gsrsearch": query, "gsrnamespace": 6,
-                              "gsrlimit": limit, "prop": "imageinfo", "iiprop": "url|mime",
+                              "gsrlimit": limit, "prop": "imageinfo|coordinates", "iiprop": "url|mime",
                               "iiurlwidth": THUMB_WIDTH})
     return _files_from_pages(data.get("query", {}).get("pages", {}))
 
@@ -317,6 +331,71 @@ def city_photo(city, country=None, lat=None, lon=None):
             "wikidata_id": wd["id"], "wikipedia_url": wd["wikipedia"]}
 
 
+def _same_keywords(a, b):
+    """Mismo edificio dicho en dos idiomas: "Museo de Arte de Miyagi" / "Miyagi Museum of Art".
+    Se comparan solo las palabras con chicha, sin museo/arte/casa/of/de… Una sola palabra corta
+    no identifica nada: "TIME'S" coincidiría con "Time's Up"."""
+    ka = set(_words(a)) - GENERIC_WORDS
+    kb = set(_words(b)) - GENERIC_WORDS
+    if not ka or ka != kb:
+        return False
+    return len(ka) >= 2 or len(next(iter(ka))) >= 5
+
+
+def _distinctive(name):
+    return {w for w in _words(name) if w not in GENERIC_WORDS}
+
+
+def wikipedia_lookup(name, lat=None, lon=None):
+    """La ficha del hito en Wikipedia: su foto de cabecera y, de paso, su id de Wikidata.
+
+    Es la red de seguridad cuando la búsqueda en Wikidata no encuentra nada, que es lo que pasa
+    con los nombres escritos en español ("Santuario Ōsaki Hachimangū"): Wikipedia busca por texto
+    y sí los reconoce. Solo vale si el artículo cae cerca del hito o se titula como él."""
+    keys = _distinctive(name)
+    if not keys or (len(keys) < 2 and max(len(w) for w in keys) < 5):
+        return None                  # "TIME'S", "House NA": con eso no se busca a ciegas
+    plain = re.sub(r"\s*\([^)]*\)", "", name).strip() or name
+    for lang in WIKI_LANGS:
+        data = _get(WIKIPEDIA_API % lang, {
+            "action": "query", "generator": "search", "gsrsearch": plain, "gsrlimit": 5,
+            "prop": "pageimages|coordinates|pageprops|description", "piprop": "thumbnail|name",
+            "pithumbsize": THUMB_WIDTH, "ppprop": "wikibase_item"})
+        pages = sorted((data.get("query", {}) or {}).get("pages", {}).values(), key=lambda p: p.get("index", 99))
+        for page in pages:
+            if not page.get("pageimage"):
+                continue
+            coords = (page.get("coordinates") or [{}])[0]
+            if (lat is not None and coords.get("lat") is not None
+                    and haversine_km(lat, lon, coords["lat"], coords["lon"]) > WIKI_KM):
+                continue        # otro sitio con el mismo nombre: el Kōmyō-in de Sakai, no el de Kioto
+            # sin esto, "Museo de Arte de Miyagi" se queda con el templo Zuigan-ji, que está al lado
+            if not (_label_covers(page["title"], name) or _same_keywords(page["title"], name)):
+                continue
+            extra = _distinctive(name) - _distinctive(page["title"])
+            if extra and extra <= GENERIC_WORDS | {"house", "casa"}:
+                continue        # "Shibaura" no es "Shibaura House": es el barrio donde está
+            desc = page.get("description") or ""
+            if BAD_HIT.search(desc) or (PERSON_WORDS.search(desc) and not BUILDING_WORDS.search(desc)):
+                continue        # una persona, un disco, una revista…
+            if ADMIN_AREA.search(desc) and not (_same_place(page["title"], name)
+                                                or _distinctive(name) & PLACE_CATEGORY):
+                continue        # el barrio donde está el edificio no es el edificio
+            return {"id": (page.get("pageprops") or {}).get("wikibase_item"),
+                    "image": page["pageimage"],
+                    "title": page["title"],
+                    "wikipedia": "https://%s.wikipedia.org/wiki/%s" % (lang, quote(page["title"].replace(" ", "_"))),
+                    "lat": coords.get("lat"), "lon": coords.get("lon")}
+    return None
+
+
+def entity_info(qid):
+    """Los datos de una ficha de Wikidata que ya conocemos por su id."""
+    ents = _get(WIKIDATA_API, {"action": "wbgetentities", "ids": qid, "props": "claims|sitelinks",
+                               "sitefilter": "enwiki|eswiki|jawiki"}).get("entities", {})
+    return _entity_info(qid, ents.get(qid, {}))
+
+
 def fetch_images(name, city, lat=None, lon=None):
     """-> {wikidata_id, wikipedia_url, lat, lon, images: [{kind, url, thumb, title, page_url, source}]}
     Raises requests.RequestException on network trouble (caller decides whether to retry)."""
@@ -345,8 +424,28 @@ def fetch_images(name, city, lat=None, lon=None):
             for f in commons_drawings(wd["category"]):   # matched on description text: re-check the file itself
                 add(f, "plano" if is_drawing(f["title"], f.get("mime")) else "foto", "commons")
     if not photos and not drawings:
-        for f in commons_search(f"{name} {city}"):
-            add(f, "plano" if is_drawing(f["title"], f.get("mime")) else "foto", "commons")
-
+        # Wikidata no lo conoce por ese nombre: a ver si Wikipedia sí
+        wp = wikipedia_lookup(name, lat, lon)
+        if wp:
+            result["wikipedia_url"] = result["wikipedia_url"] or wp["wikipedia"]
+            result["wikidata_id"] = result["wikidata_id"] or wp["id"]
+            if result["lat"] is None:
+                result["lat"], result["lon"] = wp["lat"], wp["lon"]
+            add({"title": wp["image"], "url": file_url(wp["image"], LARGE_WIDTH),
+                 "thumb": file_url(wp["image"], THUMB_WIDTH),
+                 "page_url": "https://commons.wikimedia.org/wiki/File:" + quote(wp["image"].replace(" ", "_"))},
+                "foto", "wikipedia")
+            if wp["id"]:          # con su ficha de Wikidata a mano, su categoría trae más fotos
+                try:
+                    info = entity_info(wp["id"])
+                    for pl in info["plans"]:
+                        add({"title": pl, "url": file_url(pl, LARGE_WIDTH), "thumb": file_url(pl, THUMB_WIDTH),
+                             "page_url": "https://commons.wikimedia.org/wiki/File:" + quote(pl.replace(" ", "_"))},
+                            "plano", "wikidata")
+                    if info["category"]:
+                        for f in commons_category_files(info["category"]):
+                            add(f, "plano" if is_drawing(f["title"], f.get("mime")) else "foto", "commons")
+                except Exception:
+                    pass
     result["images"] = [{k: v for k, v in im.items() if k != "mime"} for im in photos[:MAX_PHOTOS] + drawings[:MAX_DRAWINGS]]
     return result

@@ -197,3 +197,68 @@ def test_city_nearby_is_not_the_building_but_a_district_landmark_is(monkeypatch)
     assert images.wikidata_lookup("Higashi Chaya District", 35.70, 139.54)["id"] == "Q2"
     # el distrito de la dirección no convierte un edificio en un barrio
     assert images.wikidata_lookup("Casa de Serralves", 35.70, 139.54)["id"] == "Q3"
+
+
+def _wiki_pages(pages):
+    return {"query": {"pages": {str(i): dict(p, index=i) for i, p in enumerate(pages, 1)}}}
+
+
+def test_wikipedia_rescues_names_written_in_spanish(monkeypatch):
+    """Wikidata no conoce "Santuario Ōsaki Hachimangū", pero Wikipedia busca por texto y sí."""
+    def get(url, params):
+        if "wikipedia.org" in url:
+            if "es." not in url:
+                return _wiki_pages([])
+            return _wiki_pages([
+                {"title": "Ishi-no-ma-zukuri", "description": "estilo arquitectónico"},     # sin foto
+                {"title": "Ōsaki Hachimangū", "pageimage": "Osaki.jpg", "description": "santuario sintoísta",
+                 "coordinates": [{"lat": 38.27, "lon": 140.85}], "pageprops": {"wikibase_item": "Q874428"}},
+            ])
+        if params.get("action") == "wbsearchentities":
+            return {"search": []}
+        if params.get("list") == "search":
+            return {"query": {"search": []}}
+        if params.get("action") == "wbgetentities":
+            return {"entities": {"Q874428": _wd(lat=38.27, lon=140.85, cat="Ōsaki Hachimangū")}}
+        if params.get("generator") == "categorymembers":
+            return {"query": {"pages": {"1": {"title": "File:Osaki 2.jpg", "index": 1, "imageinfo": [
+                {"mime": "image/jpeg", "thumburl": "https://t/osaki2.jpg"}]}}}}
+        if params.get("generator") == "search":
+            return {"query": {"pages": {}}}
+        raise AssertionError(params)
+
+    monkeypatch.setattr(images, "_get", get)
+    found = images.fetch_images("Santuario Ōsaki Hachimangū", "Sendai", 38.27, 140.85)
+    assert [im["title"] for im in found["images"]] == ["Osaki.jpg", "Osaki 2.jpg"]   # la del artículo y su categoría
+    assert found["wikidata_id"] == "Q874428"
+    assert found["wikipedia_url"].endswith("/wiki/%C5%8Csaki_Hachimang%C5%AB")
+
+
+def test_wikipedia_does_not_grab_whatever_the_search_returns(monkeypatch):
+    """Buscar por texto devuelve artículos *del tema*: hay que descartar el templo de al lado,
+    el barrio donde está el edificio, la empresa del mismo nombre y a las personas."""
+    pages = {
+        "Museo de Arte de Miyagi": [{"title": "Zuigan-ji", "pageimage": "Zuiganji.jpg", "description": "templo budista",
+                                     "coordinates": [{"lat": 38.37, "lon": 141.06}]}],          # otro sitio, al lado
+        "Shibaura House": [{"title": "Shibaura", "pageimage": "Shibaura.jpg", "description": "barrio de Minato, Tokio",
+                            "coordinates": [{"lat": 35.64, "lon": 139.75}]},
+                           {"title": "Shibaura (company)", "pageimage": "Logo.svg", "description": "Japanese company"}],
+        "Kōmyō-in": [{"title": "Go-Kōmyō Tennō", "pageimage": "Emperor.jpg", "description": "110° emperador del Japón"},
+                     {"title": "Kōmyō-in", "pageimage": "Sakai.jpg", "description": "templo en Sakai",
+                      "coordinates": [{"lat": 34.57, "lon": 135.47}]}],                          # tocayo a 48 km
+        "TIME'S": [{"title": "Time's Up", "pageimage": "TimesUp.png", "description": "movimiento"}],
+    }
+
+    def get(url, params):
+        if "wikipedia.org" in url:
+            return _wiki_pages(pages.get(params.get("gsrsearch"), []) if "es." in url else [])
+        if params.get("action") == "wbsearchentities":
+            return {"search": []}
+        if params.get("list") == "search":
+            return {"query": {"search": []}}
+        raise AssertionError(params)
+
+    monkeypatch.setattr(images, "_get", get)
+    for name, lat, lon in [("Museo de Arte de Miyagi", 38.26, 140.85), ("Shibaura House", 35.6432, 139.7492),
+                           ("Kōmyō-in", 34.976, 135.774), ("TIME'S", 35.0089, 135.7705)]:
+        assert images.fetch_images(name, "", lat, lon)["images"] == [], name
