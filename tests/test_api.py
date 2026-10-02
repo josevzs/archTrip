@@ -7,6 +7,12 @@ import pytest
 from archtrip import geo, images, links
 from conftest import LANDMARK_HEADER, LANDMARK_ROWS, ROUTE_HEADER, ROUTE_ROWS, make_xlsx, upload
 
+CITY_PHOTOS = {        # lo que devolvería Commons para una ciudad de la ruta
+    "Oporto": {"url": "https://c/porto.jpg", "thumb": "https://c/porto-640.jpg",
+               "title": "Porto.jpg", "page_url": "https://commons.wikimedia.org/wiki/File:Porto.jpg",
+               "wikidata_id": "Q36433", "wikipedia_url": "https://es.wikipedia.org/wiki/Oporto"},
+}
+
 COORDS = {
     "Oporto, Portugal": (41.1579, -8.6291),
     "Lisboa, Portugal": (38.7223, -9.1393),
@@ -32,12 +38,17 @@ def fake_geo(monkeypatch):
         log["images"].append(name)
         return {"wikidata_id": None, "wikipedia_url": None, "lat": None, "lon": None, "images": []}
 
-    log["images"] = []
+    def city_photo(city, country=None, lat=None, lon=None):
+        log["city_photos"].append(city)
+        return CITY_PHOTOS.get(city)
+
+    log["images"], log["city_photos"] = [], []
     monkeypatch.setattr(links, "find_archdaily", lambda n, a, c="", k="": None)
     monkeypatch.setattr(links, "find_av", lambda n, a, c="": None)
     monkeypatch.setattr(geo, "nominatim_geocode", geocode)
     monkeypatch.setattr(geo, "osrm_drive", osrm)
     monkeypatch.setattr(images, "fetch_images", fetch_images)
+    monkeypatch.setattr(images, "city_photo", city_photo)
     return log
 
 
@@ -370,3 +381,38 @@ def test_prompt_download(client):
     assert "[ciudad 1" in text and "[nombre del viaje]" in text and "descartado" in text and "posible" in text
     r = client.get("/api/templates/prompt.md?download=1")
     assert "prompt-archtrip.md" in r.headers["Content-Disposition"]
+
+
+def test_route_stops_get_a_photo_and_can_be_changed_by_hand(client, fake_geo):
+    tid = new_trip(client)
+    upload(client, f"/api/trips/{tid}/route", make_xlsx(ROUTE_HEADER, ROUTE_ROWS))
+    upload(client, f"/api/trips/{tid}/landmarks", make_xlsx(LANDMARK_HEADER, LANDMARK_ROWS))
+    assert client.get(f"/api/trips/{tid}").get_json()["pending"]["stop_photos"] == 0   # aún sin localizar
+    enrich_all(client, tid)
+
+    porto, lisboa = client.get(f"/api/trips/{tid}").get_json()["stops"]
+    assert fake_geo["city_photos"] == ["Oporto", "Lisboa"]      # una búsqueda por parada, no por hito
+    assert (porto["images_status"], porto["photo_title"]) == ("ok", "Porto.jpg")
+    assert porto["photo_thumb"] == "https://c/porto-640.jpg"
+    assert porto["photo_page"].endswith("File:Porto.jpg")
+    assert (lisboa["images_status"], lisboa["photo_url"]) == ("ninguna", None)   # Commons no tenía nada
+
+    # pegar una foto a mano
+    r = client.patch(f"/api/stops/{lisboa['id']}", json={"photo_url": "https://example.com/lisboa.jpg"})
+    assert (r.get_json()["images_status"], r.get_json()["photo_url"]) == ("manual", "https://example.com/lisboa.jpg")
+    assert client.patch(f"/api/stops/{lisboa['id']}", json={"photo_url": "lisboa.jpg"}).status_code == 400
+    assert client.patch(f"/api/stops/{lisboa['id']}", json={"photo_url": ""}).get_json()["photo_url"] is None
+
+    # volver a buscar: queda pendiente y el enriquecimiento la busca otra vez
+    assert client.patch(f"/api/stops/{porto['id']}", json={"refresh": True}).get_json()["images_status"] == "pendiente"
+    assert client.get(f"/api/trips/{tid}").get_json()["pending"]["stop_photos"] == 1
+    enrich_all(client, tid)
+    assert client.get(f"/api/trips/{tid}").get_json()["stops"][0]["photo_title"] == "Porto.jpg"
+
+    # y los cambios a mano se pueden deshacer como todo lo demás
+    client.post("/api/admin/login", json={"password": "admin"})
+    sid = client.get("/api/admin/sessions").get_json()[0]["id"]
+    cambios = [c for c in client.get(f"/api/admin/sessions/{sid}/changes").get_json() if c["action"] == "stop_photo"]
+    assert [c["landmark_name"] for c in cambios] == ["Lisboa", "Lisboa", "Oporto"]   # la URL inválida no cuenta
+    assert client.post(f"/api/admin/changes/{cambios[1]['id']}/revert").get_json()["result"] == "revertido"
+    assert client.get(f"/api/trips/{tid}").get_json()["stops"][1]["photo_url"] == "https://example.com/lisboa.jpg"

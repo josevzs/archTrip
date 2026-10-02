@@ -20,7 +20,12 @@ CREATE TABLE IF NOT EXISTS route_stops (
     notes          TEXT,
     lat            REAL,
     lon            REAL,
-    geocode_status TEXT NOT NULL DEFAULT 'pendiente'   -- pendiente | ok | fallido
+    geocode_status TEXT NOT NULL DEFAULT 'pendiente',  -- pendiente | ok | fallido
+    photo_url      TEXT,                               -- una foto de la ciudad para la tira de ruta
+    photo_thumb    TEXT,
+    photo_title    TEXT,
+    photo_page     TEXT,                               -- página del archivo en Commons (crédito)
+    images_status  TEXT NOT NULL DEFAULT 'pendiente'   -- pendiente | ok | ninguna | manual
 );
 
 CREATE TABLE IF NOT EXISTS landmarks (
@@ -131,6 +136,11 @@ MIGRATIONS = [
     ("landmarks", "links_status", "TEXT NOT NULL DEFAULT 'pendiente'"),
     ("day_items", "needs_confirm", "INTEGER NOT NULL DEFAULT 0"),
     ("trips", "private", "INTEGER NOT NULL DEFAULT 0"),
+    ("route_stops", "photo_url", "TEXT"),
+    ("route_stops", "photo_thumb", "TEXT"),
+    ("route_stops", "photo_title", "TEXT"),
+    ("route_stops", "photo_page", "TEXT"),
+    ("route_stops", "images_status", "TEXT NOT NULL DEFAULT 'pendiente'"),
 ]
 
 

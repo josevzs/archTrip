@@ -188,7 +188,7 @@ def _label_covers(label, name):
     return len(keys) >= 2 or not (set(lab) - set(keys) - GENERIC_WORDS)
 
 
-def _pick(hits, lat, lon, strict, name=""):
+def _pick(hits, lat, lon, strict, name="", allow_area=False):
     """Elige la ficha de Wikidata que de verdad puede ser este hito.
 
     Vale si cae cerca y, o bien se llama igual, o al menos está descrita como un lugar; si nada
@@ -214,9 +214,10 @@ def _pick(hits, lat, lon, strict, name=""):
     for h, info in infos:      # 1) cerca del hito y, o se llama igual, o suena a lugar
         if not near(info):
             continue
-        if ADMIN_AREA.search(h["description"]):
+        if ADMIN_AREA.search(h["description"]) and not allow_area:
             # el barrio o la ciudad donde está un edificio no son el edificio; solo valen cuando
-            # el hito es el propio barrio (mismo nombre, o el profesor lo llamó "… (barrio)")
+            # el hito es el propio barrio (mismo nombre, o el profesor lo llamó "… (barrio)").
+            # Para una parada de la ruta sí buscamos la ciudad: allow_area.
             if _same_place(h.get("label"), name) or set(_words(name)) & PLACE_CATEGORY:
                 return info
             continue
@@ -232,15 +233,15 @@ def _pick(hits, lat, lon, strict, name=""):
     return None
 
 
-def wikidata_lookup(name, lat=None, lon=None):
+def wikidata_lookup(name, lat=None, lon=None, allow_area=False):
     """-> entity info dict or None. Label search (English, then Spanish), then full-text
     search, then the distinctive part of the name with strict checks."""
     plain = re.sub(r"\s*\([^)]*\)", "", name).strip() or name   # "Gion (barrio)" -> "Gion"
     for lang in ("en", "es"):   # professors write names in Spanish or English
-        info = _pick(_search_labels(plain, lang), lat, lon, strict=False, name=name)
+        info = _pick(_search_labels(plain, lang), lat, lon, strict=False, name=name, allow_area=allow_area)
         if info:
             return info
-    info = _pick(_search_fulltext(plain), lat, lon, strict=False, name=name)
+    info = _pick(_search_fulltext(plain), lat, lon, strict=False, name=name, allow_area=allow_area)
     if info:
         return info
     core = core_name(name)
@@ -294,6 +295,26 @@ PICTURE_MIMES = {"image/jpeg", "image/png", "image/gif", "image/webp", "image/sv
 def is_drawing(title, mime=None):
     """Drawings are named as such, or are line art (png/svg) rather than photos (jpeg)."""
     return bool(DRAWING_WORDS.search(title)) or (mime in DRAWING_MIMES and not re.search(r"photo|foto", title, re.I))
+
+
+def city_photo(city, country=None, lat=None, lon=None):
+    """Una foto de la ciudad para la tira de la ruta: la imagen principal de su ficha de
+    Wikidata y, si no la tiene, la primera de su categoría en Commons. None si no hay nada."""
+    wd = wikidata_lookup(city, lat, lon, allow_area=True)
+    if not wd:
+        return None
+    best = wd["image"]
+    if not best and wd["category"]:
+        files = [f for f in commons_category_files(wd["category"]) if not is_drawing(f["title"], f.get("mime"))]
+        if files:
+            f = files[0]
+            return {"url": f["url"], "thumb": f["thumb"], "title": f["title"], "page_url": f["page_url"],
+                    "wikidata_id": wd["id"], "wikipedia_url": wd["wikipedia"]}
+    if not best:
+        return None
+    return {"url": file_url(best, LARGE_WIDTH), "thumb": file_url(best, THUMB_WIDTH), "title": best,
+            "page_url": "https://commons.wikimedia.org/wiki/File:" + quote(best.replace(" ", "_")),
+            "wikidata_id": wd["id"], "wikipedia_url": wd["wikipedia"]}
 
 
 def fetch_images(name, city, lat=None, lon=None):

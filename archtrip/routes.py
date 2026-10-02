@@ -325,6 +325,35 @@ def clear_landmarks(trip_id):
     return "", 204
 
 
+@api.patch("/stops/<int:stop_id>")
+def patch_stop(stop_id):
+    """La foto de una parada: pegar una dirección a mano ({photo_url}) o volver a buscarla
+    ({refresh: true}, la encuentra el enriquecimiento)."""
+    db = get_db()
+    stop = row(db.execute("SELECT * FROM route_stops WHERE id = ?", (stop_id,)))
+    if stop is None:
+        abort(404, description="Parada no encontrada")
+    _trip_or_404(db, stop["trip_id"])            # una parada de un viaje privado tampoco existe fuera
+    body = request.get_json(silent=True) or {}
+    if body.get("refresh"):
+        db.execute("UPDATE route_stops SET photo_url = NULL, photo_thumb = NULL, photo_title = NULL, "
+                   "photo_page = NULL, images_status = 'pendiente' WHERE id = ?", (stop_id,))
+        audit.log(db, "stop_photo", stop["trip_id"], landmark_name=stop["city"], field="photo",
+                  old=stop["photo_url"], new=None, snapshot={"stop_id": stop_id, "photo": dict(stop)})
+    elif "photo_url" in body:
+        url = (body.get("photo_url") or "").strip()
+        if url and not uploads.is_http_url(url):
+            abort(400, description="Pega una dirección que empiece por http:// o https://")
+        db.execute("UPDATE route_stops SET photo_url = ?, photo_thumb = ?, photo_title = ?, photo_page = ?, "
+                   "images_status = ? WHERE id = ?",
+                   (url or None, url or None, (body.get("photo_title") or url.rsplit("/", 1)[-1][:120]) or None,
+                    url or None, "manual" if url else "ninguna", stop_id))
+        audit.log(db, "stop_photo", stop["trip_id"], landmark_name=stop["city"], field="photo",
+                  old=stop["photo_url"], new=url or None, snapshot={"stop_id": stop_id, "photo": dict(stop)})
+    db.commit()
+    return jsonify(row(db.execute("SELECT * FROM route_stops WHERE id = ?", (stop_id,))))
+
+
 # -------------------------------------------------------------- landmarks
 
 def _to_float(v):

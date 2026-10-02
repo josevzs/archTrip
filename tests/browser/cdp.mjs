@@ -138,6 +138,15 @@ try {
   check('last pending curated closes the ficha', !(await evaluate(`!!document.getElementById('detail')`)) && (await evaluate(text('#list'))).includes('Nada que mostrar'));
   await evaluate(`document.querySelector('[data-action="filter"][data-filter="todos"]').click()`); await sleep(300);
 
+  // ---- tira de ruta con la foto de cada ciudad
+  check('cada parada se ve con su foto', await evaluate(count('.route .card2')) === 2
+    && await evaluate(count('.route .card2 .pic img')) >= 1, await evaluate(count('.route .card2 .pic img')));
+  check('y se puede cambiar o volver a buscar', await evaluate(count('.route [data-action="stop-photo"]')) === 2);
+  await evaluate(`window.prompt = () => 'https://example.com/otra.jpg'`);
+  await evaluate(`document.querySelector('.route [data-action="stop-photo"]').click()`); await sleep(1200);
+  check('pegar una dirección cambia la foto de la parada',
+    (await (await fetch(`${BASE}/api/trips/${TRIP}`)).json()).stops[0].photo_url === 'https://example.com/otra.jpg');
+
   // ---- mapa
   await evaluate(`document.querySelector('[data-action="view"][data-view="mapa"]').click()`); await sleep(4000);
   check('leaflet loaded', await evaluate(`!!window.L && !!document.querySelector('.leaflet-container')`));

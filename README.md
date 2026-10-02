@@ -151,6 +151,9 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
   (mismo nombre, arquitecto o lugar). Mientras no se ha comprobado se ofrece la búsqueda; si no
   hay ficha, no aparece botón. Los títulos en español de AV ("Museo del Siglo XXI") no casan con
   nombres en inglés: ahí conviene pegar la URL a mano en *editar*.
+- Cada **parada de la ruta** se queda con una foto de su ciudad, buscada sola en Wikidata y
+  Wikimedia Commons (es lo último que busca la app, después de los hitos). Debajo de cada foto
+  hay *cambiar* —para pegar la dirección de otra imagen— y *buscar*, que la busca otra vez.
 - Cada hito enlaza a **Google Maps** (por coordenadas si está localizado) y, si tiene parada,
   a "cómo llegar" con la ruta en coche desde ella.
 - Coordenadas y tiempos vienen de servicios públicos gratuitos (Nominatim tiene un límite de

@@ -51,9 +51,19 @@
   .bar { height: 6px; background: var(--soft); border: 1px solid var(--line); margin-top: 4px; }
   .bar i { display: block; height: 100%; background: var(--ink); }
 
-  .route { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; }
+  .route { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: flex-start; }
   .route .stop { white-space: nowrap; }
   .route .stop b { font-weight: normal; text-transform: uppercase; }
+  /* con foto: la parada pasa a ser una tarjetita */
+  .route .card2 { width: 130px; white-space: normal; border: 1px solid var(--line); }
+  .route .card2 .pic { display: block; height: 72px; background: var(--soft); overflow: hidden; position: relative; }
+  .route .card2 .pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .route .card2 .pic .nopic { font-size: 11px; color: var(--muted); display: flex; height: 100%;
+                              align-items: center; justify-content: center; text-align: center; padding: 0 6px; }
+  .route .card2 .cap { padding: 4px 6px; font-size: 12px; display: flex; gap: 4px; align-items: baseline; }
+  .route .card2 .cap b { font-weight: normal; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; }
+  .route .card2 .tools { padding: 0 6px 5px; font-size: 11px; display: flex; gap: 8px; }
+  .route .arrow { align-self: center; color: var(--muted); }
 
   .controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 18px 0 10px; }
   .tabs { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -430,6 +440,7 @@
     health: () => call('GET', '/api/health'),
     createTrip: (name) => call('POST', '/api/trips', { name }),
     patchTrip: (id, fields) => call('PATCH', '/api/trips/' + id, fields),
+    patchStop: (id, fields) => call('PATCH', '/api/stops/' + id, fields),
     copyTrip: (id, body) => call('POST', '/api/trips/' + id + '/copy', body || {}),
     renameTrip: (id, name) => call('PATCH', '/api/trips/' + id, { name }),
     deleteTrip: (id) => call('DELETE', '/api/trips/' + id),
@@ -627,8 +638,16 @@
     return '<div class="route">' + state.stops.map((s) => {
       const glyph = s.geocode_status === 'ok' ? '<span class="ok">✓</span>'
         : s.geocode_status === 'fallido' ? '<span class="warn" title="No se ha podido localizar">✗</span>' : '<span class="muted">⏳</span>';
-      return '<span class="stop">' + s.position + '. <b>' + esc(s.city) + '</b> ' + glyph + '</span>';
-    }).join('<span class="muted">→</span>') + '</div>';
+      const pic = s.photo_thumb
+        ? '<img src="' + attr(s.photo_thumb) + '" alt="" loading="lazy" onerror="this.parentNode.innerHTML=\'<div class=nopic>sin foto</div>\'">'
+        : '<div class="nopic">' + (s.images_status === 'pendiente' && !STANDALONE ? '⏳ buscando foto…' : 'sin foto') + '</div>';
+      const link = s.photo_page ? '<a href="' + attr(s.photo_page) + '" target="_blank" rel="noopener" title="Ver el archivo en Wikimedia Commons">origen</a>' : '';
+      const tools = STANDALONE ? '' : '<div class="tools"><button class="link" data-action="stop-photo" data-id="' + s.id + '" title="Pegar la dirección de otra foto">cambiar</button>'
+        + (s.photo_url ? '<button class="link" data-action="stop-photo-refresh" data-id="' + s.id + '" title="Buscar otra vez en Wikidata y Commons">buscar</button>' : '')
+        + link + '</div>';
+      return '<div class="stop card2"><span class="pic">' + pic + '</span>'
+        + '<div class="cap">' + s.position + '. <b>' + esc(s.city) + '</b> ' + glyph + '</div>' + tools + '</div>';
+    }).join('<span class="arrow">→</span>') + '</div>';
   }
 
   function progressView() {
@@ -642,7 +661,8 @@
       const total = e.total || e.remaining || 1;
       const pct = Math.max(2, Math.round(100 * (total - e.remaining) / total));
       const c = state.pending || {};
-      const what = (c.stops || c.geocode || c.drive) ? 'Localizando en el mapa' : c.images ? 'Buscando fotos y planos' : 'Comprobando enlaces en ArchDaily y Arquitectura Viva';
+      const what = (c.stops || c.geocode || c.drive) ? 'Localizando en el mapa' : c.images ? 'Buscando fotos y planos'
+        : c.links ? 'Comprobando enlaces en ArchDaily y Arquitectura Viva' : 'Buscando una foto de cada ciudad de la ruta';
       return '<div class="progress">' + what + '… quedan ' + e.remaining
         + '<div class="bar"><i style="width:' + pct + '%"></i></div></div>';
     }
@@ -923,6 +943,11 @@
       if (da !== db2) return da < db2 ? -1 : 1;
       return (a.position - b.position) || (a.id - b.id);
     });
+  }
+
+  function applyStop(stop) {
+    const i = state.stops.findIndex((s) => s.id === stop.id);
+    if (i >= 0) state.stops[i] = stop;
   }
 
   function applyDayAnd(day) { applyDay(day); return day; }
@@ -1816,6 +1841,21 @@
       const name = el.dataset.name;
       if (!confirm('¿Sustituir TODOS los datos actuales por la copia ' + name + '?\nEl estado actual se guarda antes como pre-restore-….db, por si hay que volver.')) return;
       adminDo(async () => { const r = await admin.post('/backups/' + encodeURIComponent(name) + '/restore'); return 'Restaurada ' + r.restored + ' (estado previo guardado en ' + r.saved_before + ')'; });
+    },
+    'stop-photo': async (el) => {
+      const stop = state.stops.find((x) => x.id === Number(el.dataset.id));
+      if (!stop) return;
+      const url = prompt('Dirección de la foto para ' + stop.city + ' (clic derecho en cualquier imagen de la web → copiar dirección de la imagen).\nDéjalo vacío para quitarla:', stop.photo_url || '');
+      if (url === null) return;
+      try { applyStop(await store.patchStop(stop.id, { photo_url: url.trim() })); } catch (e) { fail(e); }
+      renderList();
+    },
+    'stop-photo-refresh': async (el) => {
+      const stop = state.stops.find((x) => x.id === Number(el.dataset.id));
+      if (!stop) return;
+      try { applyStop(await store.patchStop(stop.id, { refresh: true })); } catch (e) { fail(e); }
+      renderList();
+      runEnrich();
     },
     'toggle-private': async (el) => {
       const t = state.trips.find((x) => x.id === Number(el.dataset.id));

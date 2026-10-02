@@ -393,6 +393,19 @@ def revert_change(db, c):
         for item_id, pos in snap:
             db.execute("UPDATE day_items SET position = ? WHERE id = ?", (pos, item_id))
         audit.log(db, "item_order", trip_id, landmark_name=c["landmark_name"], snapshot=current, revert_of=c["id"])
+    elif action == "stop_photo":
+        stop = row(db.execute("SELECT * FROM route_stops WHERE id = ?", (snap["stop_id"],)))
+        if not stop:
+            return "la parada ya no existe"
+        before = dict(stop)
+        old_photo = snap["photo"]
+        db.execute("UPDATE route_stops SET photo_url = ?, photo_thumb = ?, photo_title = ?, photo_page = ?, "
+                   "images_status = ? WHERE id = ?",
+                   (old_photo.get("photo_url"), old_photo.get("photo_thumb"), old_photo.get("photo_title"),
+                    old_photo.get("photo_page"), old_photo.get("images_status") or "pendiente", stop["id"]))
+        audit.log(db, "stop_photo", trip_id, landmark_name=stop["city"], field="photo",
+                  old=c["new_value"], new=old_photo.get("photo_url"),
+                  snapshot={"stop_id": stop["id"], "photo": before}, revert_of=c["id"])
     elif action == "route_upload":
         current = rows(db.execute("SELECT * FROM route_stops WHERE trip_id = ? ORDER BY position", (trip_id,)))
         _restore_stops(db, trip_id, snap)

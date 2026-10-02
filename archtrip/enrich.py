@@ -45,8 +45,13 @@ def pending_counts(db, trip_id):
     lnk = db.execute(
         "SELECT COUNT(*) FROM landmarks WHERE trip_id = ? AND links_status = 'pendiente'", (trip_id,)
     ).fetchone()[0]
+    stop_photos = db.execute(
+        "SELECT COUNT(*) FROM route_stops WHERE trip_id = ? AND images_status = 'pendiente' "
+        "AND geocode_status != 'pendiente'", (trip_id,)
+    ).fetchone()[0]
     return {"stops": stops, "geocode": geocode, "drive": drive, "images": imgs, "links": lnk,
-            "total": stops + geocode + drive + imgs + lnk, "has_route": has_located_stop}
+            "stop_photos": stop_photos,
+            "total": stops + geocode + drive + imgs + lnk + stop_photos, "has_route": has_located_stop}
 
 
 def _geocode_stop(db, stop):
@@ -134,6 +139,19 @@ def _fetch_images(db, lm):
     return {"kind": "landmark", "id": lm["id"], "ok": status == "ok", "images": len(found["images"])}
 
 
+def _stop_photo(db, stop):
+    """Una foto de la ciudad de la parada. Es lo último que se busca: no estorba al curado."""
+    found = images.city_photo(stop["city"], stop["country"], stop["lat"], stop["lon"])
+    if found:
+        db.execute("UPDATE route_stops SET photo_url = ?, photo_thumb = ?, photo_title = ?, photo_page = ?, "
+                   "images_status = 'ok' WHERE id = ?",
+                   (found["url"], found["thumb"], found["title"], found["page_url"], stop["id"]))
+    else:
+        db.execute("UPDATE route_stops SET images_status = 'ninguna' WHERE id = ?", (stop["id"],))
+    db.commit()
+    return {"kind": "stop", "id": stop["id"], "ok": bool(found), "photo": bool(found)}
+
+
 def _find_links(db, lm):
     """Fill url_archdaily / url_av when empty, from the sites' own search. Never overwrites a URL
     the professor typed."""
@@ -202,6 +220,19 @@ def step(trip_id):
                             db.execute("UPDATE landmarks SET links_status = 'ok' WHERE id = ?", (lm["id"],))
                             db.commit()
                             item = {"kind": "landmark", "id": lm["id"], "ok": False, "links": 0}
+                if item is None:      # lo último: la foto de cada parada para la tira de la ruta
+                    stop = row(db.execute(
+                        "SELECT * FROM route_stops WHERE trip_id = ? AND images_status = 'pendiente' "
+                        "AND geocode_status != 'pendiente' ORDER BY position LIMIT 1", (trip_id,)))
+                    if stop:
+                        try:
+                            item = _stop_photo(db, stop)
+                        except requests.RequestException:
+                            raise
+                        except Exception:
+                            db.execute("UPDATE route_stops SET images_status = 'ninguna' WHERE id = ?", (stop["id"],))
+                            db.commit()
+                            item = {"kind": "stop", "id": stop["id"], "ok": False, "photo": False}
     except requests.RequestException as exc:
         counts = pending_counts(db, trip_id)
         return {"done": False, "remaining": counts["total"], "item": None,
