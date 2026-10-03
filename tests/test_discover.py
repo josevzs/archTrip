@@ -246,6 +246,18 @@ def test_the_same_building_in_two_sources_is_one_candidate_that_cites_both(fake_
     assert out["candidates"][0] is convento                            # lo que coincide, primero
 
 
+def test_wikidata_is_trimmed_first_never_the_curated_lists(fake_sources):
+    out = discover.discover(payload(STOPS), cache_dir=fake_sources, geocode=geocode, limit=2)
+    a = out["area"]
+    assert (a["candidates"], a["shown"], a["trimmed"]) == (6, 4, 2)
+    # los cuatro de las listas curadas entran aunque el tope sea 2; se cae lo que solo tiene Wikidata
+    assert not [c for c in out["candidates"] if c["sources"] == ["wikidata"]]
+    assert {"Casa das Artes", "Torre sem Cidade"} <= {c["name"] for c in out["candidates"]}
+    # y el orden no cambia por recortar
+    todo = discover.discover(payload(STOPS), cache_dir=fake_sources, geocode=geocode)["candidates"]
+    assert [c["name"] for c in out["candidates"]] == [c["name"] for c in todo if c["sources"] != ["wikidata"]]
+
+
 def test_only_the_sources_asked_for(fake_sources):
     out = discover.discover(payload(STOPS), sources=["arquitecturaviva"], cache_dir=fake_sources, geocode=geocode)
     assert set(out["area"]["found"]) == {"arquitecturaviva"}

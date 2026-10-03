@@ -50,6 +50,7 @@ CACHE_DAYS = 7
 OSRM_ROUTE = "https://router.project-osrm.org/route/v1/driving/"
 
 SOURCES = ("arquitecturaviva", "iwanbaan", "wikidata")
+CURATED = ("arquitecturaviva", "iwanbaan")   # las listas escogidas a mano, que nunca se recortan
 SOURCE_NAME = {"arquitecturaviva": "Arquitectura Viva", "iwanbaan": "Iwan Baan", "wikidata": "Wikidata"}
 
 
@@ -615,4 +616,17 @@ def discover(payload, hours_env=ENVELOPE_H, hours_halo=HALO_H, include_posible=F
     out.sort(key=lambda c: (-len(c["sources"]), c["drive_minutes"] if c["drive_minutes"] is not None else 1e9,
                             c["name"]))
     area["candidates"] = len(out)
-    return {"candidates": out[:limit], "area": area}
+    # Wikidata puede traer miles y taparlo todo: se recorta solo ella, y las listas curadas
+    # entran enteras aunque queden al final del orden (los de «país» no tienen tiempo en coche)
+    curated = [c for c in out if set(c["sources"]) & set(CURATED)]
+    quota = limit - len(curated)
+    shown = []
+    for c in out:                      # sin alterar el orden: solo se cae lo que sobra
+        if set(c["sources"]) & set(CURATED):
+            shown.append(c)
+        elif quota > 0:
+            shown.append(c)
+            quota -= 1
+    area["shown"] = len(shown)
+    area["trimmed"] = len(out) - len(shown)
+    return {"candidates": shown, "area": area}

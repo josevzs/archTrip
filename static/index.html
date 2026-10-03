@@ -1191,7 +1191,8 @@
       const resumen = Object.keys(a.found || {}).map((src) => SOURCE_LABEL[src] + ': ' + a.found[src]).join(' · ');
       body = '<div class="muted small">En la zona (' + Math.round(a.radius_env_km) + ' km de envolvente, '
         + Math.round(a.radius_halo_km) + ' km de desvío) — ' + resumen + '. Quitando lo que ya está en el viaje quedan <b>'
-        + d.candidates.length + '</b>.'
+        + a.candidates + '</b>'
+        + (a.trimmed ? ', de los que se enseñan ' + a.shown + ' (Wikidata se recorta; afina las horas o apágala)' : '') + '.'
         + (a.places_left ? ' A Iwan Baan todavía le quedan lugares por situar (van de pocos en pocos, los más probables primero): vuelve a buscar para afinar la lista.' : '')
         + (Object.keys(a.errors || {}).length ? ' <b>No han contestado:</b> ' + Object.keys(a.errors).map((x) => SOURCE_LABEL[x]).join(', ') + '.' : '')
         + '</div>'
