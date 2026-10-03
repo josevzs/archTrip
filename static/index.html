@@ -114,6 +114,25 @@
   .card .actions { margin-top: 8px; gap: 6px; }
   .card .actions button { padding: 4px 8px; font-size: 12.5px; }
 
+  /* ---- descubrir */
+  .cands { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 10px; }
+  .cand { border: 1px solid var(--line); display: flex; gap: 9px; padding: 8px; align-items: flex-start; cursor: pointer; }
+  .cand.on { border-color: var(--ink); background: var(--soft); }
+  .cand img, .cand .nopic { width: 92px; height: 69px; flex: none; object-fit: cover; background: var(--soft); }
+  .cand .cb { flex: 1; min-width: 0; }
+  .cand .arch { font-size: 13px; }
+  .cand .name { font-size: 14px; line-height: 1.25; }
+  .cand .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .cand .srcs { font-size: 11.5px; margin-top: 3px; }
+  .cand input { margin: 2px 0 0; }
+  .zone { border: 1px solid var(--line); padding: 0 4px; font-size: 11px; white-space: nowrap; }
+  .candico { width: 11px; height: 11px; background: var(--bg); border: 2px solid #2a6ca8; transform: rotate(45deg); }
+  .candico.dos { background: #2a6ca8; }
+  .discbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 8px; }
+  .discbar input[type=number] { width: 52px; font-family: inherit; font-size: 13px; }
+  .discbar .sep { border-left: 1px solid var(--line); height: 20px; }
+  .discbar button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
   /* ---- mapa */
   #map { height: 72vh; min-height: 420px; border: 1px solid var(--line); background: var(--soft); }
   .stopicon { background: var(--ink); color: var(--bg); border-radius: 2px; font: bold 12px/20px "Courier New", monospace; text-align: center; width: 22px; height: 20px; }
@@ -300,7 +319,15 @@
                          impreciso: 'Sin localizar' };
   // 'impreciso' no es un estado de curado: son los hitos cuyo punto en el mapa no es de fiar
   // (se usó el centro de la ciudad, no se encontró nada, o ni siquiera se ha buscado todavía).
-  const VIEWS = { fotos: 'Fotos', arquitectos: 'Arquitectos', mapa: 'Mapa', lista: 'Lista', itinerario: 'Itinerario' };
+  const VIEWS = { fotos: 'Fotos', arquitectos: 'Arquitectos', mapa: 'Mapa', lista: 'Lista', itinerario: 'Itinerario', descubrir: 'Descubrir' };
+  const SOLO_SERVIDOR = { descubrir: true };     // vistas que no tienen sentido en la copia autónoma
+  const SOURCE_LABEL = { arquitecturaviva: 'Arquitectura Viva', iwanbaan: 'Iwan Baan', wikidata: 'Wikidata' };
+  const ZONE_LABEL = { envolvente: 'en la envolvente', corredor: 'de camino', pais: 'en la zona, sin situar' };
+  const ZONE_HELP = {
+    envolvente: 'A tiro de coche desde una parada o desde algo ya curado',
+    corredor: 'Cerca de la carretera entre paradas: cabe como desvío',
+    pais: 'La fuente solo dice el país, así que no se puede medir: míralo a mano',
+  };
   const COLORS = { pendiente: '#111', curado: '#2e7d4f', posible: '#b8860b', descartado: '#999' };
   const LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
   const LEAFLET_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
@@ -341,6 +368,7 @@
     newMode: null, promptText: null,
     detail: null, detailImg: 0, addingImage: false, picker: null, activeDay: null, dayMode: savedDayMode === '1',
     pdf: null,          // { done, total, phase, cancel } mientras se prepara el PDF con fotos
+    discover: null,     // { horas, fuentes, candidatos, elegidos… } de la vista Descubrir
     hideRejected: savedHide === '1', skipRejected: savedSkip === '1',
     enrich: { running: false, remaining: 0, error: null },
     admin: { authed: null, sessions: [], open: null, changes: [], query: '', history: null, backups: [], busy: false, note: null },
@@ -467,6 +495,8 @@
     deleteItem: (id) => call('DELETE', '/api/items/' + id),
     orderItems: (dayId, ids) => call('PUT', '/api/days/' + dayId + '/items/order', { ids }),
     photoNext: (tripId) => call('POST', '/api/trips/' + tripId + '/export/itinerario/fotos/next'),
+    discover: (tripId, body) => call('POST', '/api/trips/' + tripId + '/discover', body || {}),
+    discoverImport: (tripId, items) => call('POST', '/api/trips/' + tripId + '/discover/import', { items }),
   };
 
   // Standalone copy: data embedded in the file, edits overlaid from localStorage.
@@ -688,7 +718,7 @@
   }
 
   function viewsView() {
-    return Object.keys(VIEWS).map((v) => '<button class="' + (state.view === v ? 'on' : '') + '" data-action="view" data-view="' + v + '">' + VIEWS[v] + '</button>').join('');
+    return Object.keys(VIEWS).filter((v) => !(STANDALONE && SOLO_SERVIDOR[v])).map((v) => '<button class="' + (state.view === v ? 'on' : '') + '" data-action="view" data-view="' + v + '">' + VIEWS[v] + '</button>').join('');
   }
 
   function visibleLandmarks() {
@@ -800,7 +830,7 @@
   }
 
   function daybarView() {
-    if (STANDALONE || state.view === 'itinerario' || !state.days.length) return '';
+    if (STANDALONE || state.view === 'itinerario' || state.view === 'descubrir' || !state.days.length) return '';
     const chips = state.days.map((d, i) => {
       const hits = (d.items || []).filter((it) => it.kind === 'hito').length;
       const label = 'D' + (i + 1) + (d.date ? ' · ' + shortDate(d.date) : d.title ? ' · ' + d.title.slice(0, 12) : '');
@@ -1092,6 +1122,130 @@
     renderList();
   }
 
+  // ---- descubrir: qué más hay dentro del radio de acción del viaje (ver archtrip/discover.py)
+  function discoverState() {
+    if (!state.discover) {
+      state.discover = { hours_env: 2, hours_halo: 1, include_posible: false, sources: Object.keys(SOURCE_LABEL),
+        busy: false, error: null, area: null, candidates: null, chosen: {}, zone: 'todas', importing: false };
+    }
+    return state.discover;
+  }
+
+  const candKey = (c) => c.sources.join(',') + ':' + c.ref;
+
+  function discoverBar(d) {
+    const num = (field, label, title) => '<label title="' + attr(title) + '">' + label
+      + ' <input type="number" min="0" max="6" step="0.5" value="' + d[field] + '" data-action="disc-hours" data-field="' + field + '"> h</label>';
+    return '<div class="discbar">'
+      + num('hours_env', 'Envolvente', 'Hasta dónde se puede llegar en coche desde una parada o desde un hito ya curado')
+      + num('hours_halo', 'Desvío', 'Cuánto se admite desviarse de la carretera entre paradas (0 = solo la envolvente)')
+      + '<span class="sep"></span>'
+      + Object.keys(SOURCE_LABEL).map((src) => '<label class="check"><input type="checkbox" data-action="disc-source" data-src="' + src + '"'
+        + (d.sources.indexOf(src) >= 0 ? ' checked' : '') + '> ' + SOURCE_LABEL[src] + '</label>').join('')
+      + '<label class="check" title="Mide también desde los hitos marcados como «tal vez», no solo desde los curados">'
+      + '<input type="checkbox" data-action="disc-posible"' + (d.include_posible ? ' checked' : '') + '> contar los «tal vez»</label>'
+      + '<button data-action="disc-run"' + (d.busy ? ' disabled' : '') + '>' + (d.candidates ? '⟳ Buscar otra vez' : '🔍 Buscar') + '</button>'
+      + '</div>';
+  }
+
+  function candView(c, chosen) {
+    const pic = c.thumb
+      ? '<img src="' + attr(c.thumb) + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">'
+      : '<div class="nopic"></div>';
+    const meta = [c.city, c.year, c.drive_minutes != null ? minutesText(c.drive_minutes) + ' desde ' + (c.stop_city || '') : null]
+      .filter(Boolean).map(esc).join(' · ');
+    const links = c.sources.map((src, i) => {
+      const url = i === 0 ? c.url : ((c.also || [])[i - 1] || {}).url;
+      return url ? '<a href="' + attr(url) + '" target="_blank" rel="noopener">' + SOURCE_LABEL[src] + '</a>' : SOURCE_LABEL[src];
+    }).join(' · ');
+    return '<label class="cand' + (chosen ? ' on' : '') + '">'
+      + '<input type="checkbox" data-action="disc-pick" data-key="' + attr(candKey(c)) + '"' + (chosen ? ' checked' : '') + '>'
+      + pic + '<div class="cb"><div class="arch">' + esc(c.architect) + '</div>'
+      + '<div class="name">' + esc(c.name) + '</div>'
+      + '<div class="meta">' + meta + ' <span class="zone" title="' + attr(ZONE_HELP[c.zone] || '') + '">' + esc(ZONE_LABEL[c.zone] || c.zone) + '</span></div>'
+      + '<div class="srcs">' + links + (c.sources.length > 1 ? ' <b>· en ' + c.sources.length + ' listas</b>' : '') + '</div>'
+      + '</div></label>';
+  }
+
+  function discoverView() {
+    const d = discoverState();
+    const intro = '<div class="muted small" style="margin:0 0 12px">Busca obras que caigan dentro del radio de acción del viaje: '
+      + 'la <b>envolvente</b> (lo que está a unas horas en coche de una parada o de un hito ya curado) y el <b>desvío</b> '
+      + 'admisible respecto a la carretera entre paradas. Las fuentes son el mapa de obras de <b>Arquitectura Viva</b> (selección '
+      + 'editorial), el portfolio de <b>Iwan Baan</b> (no publica coordenadas: se sitúa por su ciudad) y <b>Wikidata</b> '
+      + '(enciclopédico, trae de todo). Nada se añade al viaje hasta que marques y pulses importar; entran como <b>tal vez</b>, '
+      + 'para curarlos como el resto.</div>';
+    let body = '';
+    if (d.busy) {
+      body = '<div class="progress">Preguntando a ' + d.sources.map((x) => SOURCE_LABEL[x]).join(', ')
+        + '… (Wikidata tarda medio minuto la primera vez; después queda guardado)<div class="bar"><i style="width:100%"></i></div></div>';
+    } else if (d.error) {
+      body = '<div class="msg err">' + esc(d.error) + '</div>';
+    } else if (d.candidates) {
+      const a = d.area || {};
+      const zones = ['todas'].concat(Object.keys(ZONE_LABEL).filter((z) => d.candidates.some((c) => c.zone === z)));
+      const list = d.candidates.filter((c) => d.zone === 'todas' || c.zone === d.zone);
+      const chosen = Object.keys(d.chosen).filter((k) => d.chosen[k]).length;
+      const resumen = Object.keys(a.found || {}).map((src) => SOURCE_LABEL[src] + ': ' + a.found[src]).join(' · ');
+      body = '<div class="muted small">En la zona (' + Math.round(a.radius_env_km) + ' km de envolvente, '
+        + Math.round(a.radius_halo_km) + ' km de desvío) — ' + resumen + '. Quitando lo que ya está en el viaje quedan <b>'
+        + d.candidates.length + '</b>.'
+        + (a.places_left ? ' A Iwan Baan todavía le quedan lugares por situar (van de pocos en pocos, los más probables primero): vuelve a buscar para afinar la lista.' : '')
+        + (Object.keys(a.errors || {}).length ? ' <b>No han contestado:</b> ' + Object.keys(a.errors).map((x) => SOURCE_LABEL[x]).join(', ') + '.' : '')
+        + '</div>'
+        + '<div class="discbar" style="margin-top:8px">'
+        + zones.map((z) => '<button class="' + (d.zone === z ? 'on' : '') + '" data-action="disc-zone" data-zone="' + z + '">'
+          + (z === 'todas' ? 'Todas' : ZONE_LABEL[z]) + ' '
+          + (z === 'todas' ? d.candidates.length : d.candidates.filter((c) => c.zone === z).length) + '</button>').join('')
+        + '<span class="sep"></span><button class="quiet" data-action="disc-all">Marcar las ' + list.length + '</button>'
+        + '<button class="quiet" data-action="disc-none">Ninguna</button>'
+        + '<span class="grow"></span><button data-action="disc-import"' + (chosen && !d.importing ? '' : ' disabled') + '>'
+        + (d.importing ? 'Importando…' : '＋ Importar ' + (chosen || '') + ' como tal vez') + '</button></div>'
+        + (list.length ? '<div class="cands">' + list.map((c) => candView(c, !!d.chosen[candKey(c)])).join('') + '</div>'
+          : '<div class="empty">Nada en este grupo.</div>');
+    }
+    return '<div>' + discoverBar(d) + intro + body + '</div>';
+  }
+
+  async function runDiscover() {
+    const d = discoverState();
+    if (d.busy) return;
+    if (!state.stops.some((st) => st.lat != null)) {
+      d.error = 'Primero sube la ruta: sin paradas situadas no hay zona donde buscar.';
+      renderList();
+      return;
+    }
+    d.busy = true; d.error = null; renderList();
+    try {
+      const out = await store.discover(state.trip.id, { hours_env: d.hours_env, hours_halo: d.hours_halo,
+        include_posible: d.include_posible, sources: d.sources, budget: 25 });
+      d.candidates = out.candidates; d.area = out.area; d.chosen = {}; d.showZone = true;
+      if (d.zone !== 'todas' && !out.candidates.some((c) => c.zone === d.zone)) d.zone = 'todas';
+    } catch (e) {
+      d.error = e.message || 'No se ha podido buscar';
+    }
+    d.busy = false; renderList();
+  }
+
+  async function importChosen() {
+    const d = discoverState();
+    const items = d.candidates.filter((c) => d.chosen[candKey(c)]);
+    if (!items.length || d.importing) return;
+    d.importing = true; renderList();
+    try {
+      const out = await store.discoverImport(state.trip.id, items);
+      const added = out.added.length;
+      d.candidates = d.candidates.filter((c) => !d.chosen[candKey(c)]);
+      d.chosen = {}; d.importing = false;
+      state.msg = { kind: 'ok', text: added + (added === 1 ? ' hito importado' : ' hitos importados') + ' como tal vez'
+        + (out.skipped.length ? ' (' + out.skipped.length + ' ya estaban)' : '')
+        + '. Se les está buscando foto, enlaces y tiempo en coche.' };
+      await loadTrip(state.trip.id, true);
+    } catch (e) {
+      d.importing = false; d.error = e.message || 'No se han podido importar'; renderList();
+    }
+  }
+
   function itineraryView() {
     const bar = STANDALONE ? ''
       : '<div class="itinbar"><button data-action="day-add">＋ Añadir día</button>'
@@ -1112,6 +1266,7 @@
 
   function listView() {
     if (state.view === 'itinerario') return itineraryView();
+    if (state.view === 'descubrir') return discoverView();
     const items = visibleLandmarks();
     const empty = emptyView(items);
     if (empty) return empty;
@@ -1208,6 +1363,8 @@
         L.control.layers(bases, null, { position: 'topright', collapsed: true }).addTo(mapState.map);
         mapState.map.on('baselayerchange', (e) => { try { localStorage.setItem('archtrip:basemap', e.name); } catch (x) { /* ignore */ } });
         mapState.layer = L.layerGroup().addTo(mapState.map);            // stops + route line, never clustered
+        mapState.zone = L.layerGroup().addTo(mapState.map);              // envolvente + corredor + candidatos
+        mapState.map.on('zoomend', () => { if (state.discover && state.discover.candidates) drawZone(window.L); });
         // landmarks cluster only when they really pile up (small radius); a small cluster opens a
         // list with curation buttons, a big one zooms in; identical spots spread out on max zoom
         mapState.cluster = L.markerClusterGroup({ maxClusterRadius: 28, showCoverageOnHover: false, zoomToBoundsOnClick: false,
@@ -1271,6 +1428,7 @@
       const ids = mapState.listPopup.ids.filter((id) => shown.some((lm) => lm.id === id));
       if (ids.length) openClusterList(mapState.listPopup.latlng, ids); else { mapState.map.closePopup(); mapState.listPopup = null; }
     }
+    drawZone(L);
     const hidden = items.length - shown.length;
     const legend = Object.keys(COLORS).map((s) => '<span><i style="background:' + COLORS[s] + '"></i>' + FILTER_LABEL[s] + '</span>').join('')
       + (state.days.length ? '<span title="El número es el día del itinerario al que está asignado"><i class="hollow"></i>sin día<i class="filled" style="margin-left:10px"></i>día 1, 2, 3…</span>' : '');
@@ -1280,7 +1438,50 @@
       + '<span class="muted">' + shown.length + ' hitos en el mapa'
       + (off ? ' · ' + off + ' fuera del encuadre actual' : '')
       + (hidden ? ' · ' + hidden + ' sin localizar con precisión no se muestran (ver Lista)' : '')
-      + (far ? ' · <span class="warn">' + far + ' muy lejos de la ruta (relleno rojo): probablemente mal localizados, corrígelos con editar</span>' : '') + '</span>';
+      + (far ? ' · <span class="warn">' + far + ' muy lejos de la ruta (relleno rojo): probablemente mal localizados, corrígelos con editar</span>' : '') + '</span>'
+      + (state.discover && state.discover.candidates ? '<span><i class="hollow" style="border-color:#2a6ca8"></i>'
+        + '<label class="check" title="La envolvente, el corredor y los candidatos de la búsqueda de Descubrir">'
+        + '<input type="checkbox" data-action="disc-zone-map"' + (state.discover.showZone ? ' checked' : '') + '> '
+        + state.discover.candidates.length + ' candidatos y su zona</label></span>' : '');
+  }
+
+  // La envolvente (discos de N horas alrededor de paradas e hitos curados), el corredor a lo
+  // largo de la carretera y los candidatos de la última búsqueda. Dibujarlo es lo que hace
+  // entendible el criterio: se ve de un vistazo por qué algo entra o no.
+  function drawZone(L) {
+    if (!mapState.map || !mapState.zone) return;
+    mapState.zone.clearLayers();
+    const d = state.discover;
+    if (!d || !d.candidates || !d.area || !d.showZone) return;
+    const a = d.area;
+    (a.centre_points || []).forEach((c) => {
+      L.circle(c, { radius: a.radius_env_km * 1000, color: '#2a6ca8', weight: 0, fillColor: '#2a6ca8',
+                    fillOpacity: .05, interactive: false }).addTo(mapState.zone);
+    });
+    if ((a.road || []).length > 1) {
+      // el ancho del corredor son kilómetros, no píxeles: se recalcula en cada zoom
+      const lat = mapState.map.getCenter().lat;
+      const mpp = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, mapState.map.getZoom());
+      // el trazo se recorta contra el lienzo de Leaflet si es enorme, y entonces se ve el borde
+      // del recorte como un rectángulo: por encima de ~140 px el corredor ya ocupa la pantalla
+      const px = Math.min(140, Math.max(2, 2 * a.radius_halo_km * 1000 / mpp));
+      L.polyline(a.road, { color: '#2a6ca8', weight: px, opacity: .07, interactive: false }).addTo(mapState.zone);
+      L.polyline(a.road, { color: '#2a6ca8', weight: 1, opacity: .5, interactive: false }).addTo(mapState.zone);
+    }
+    const zone = d.zone === 'todas' ? null : d.zone;
+    d.candidates.filter((c) => (!zone || c.zone === zone) && c.zone !== 'pais').forEach((c) => {
+      const m = L.marker([c.lat, c.lon], {
+        icon: L.divIcon({ className: '', html: '<div class="candico' + (c.sources.length > 1 ? ' dos' : '') + '"></div>',
+                          iconSize: [11, 11], iconAnchor: [6, 6] }), zIndexOffset: -500,
+      });
+      m.bindTooltip(c.architect + ' — ' + c.name + ' · ' + c.sources.map((x) => SOURCE_LABEL[x]).join(' + '));
+      m.bindPopup('<div class="arch">' + esc(c.architect) + '</div><div>' + esc(c.name) + '</div>'
+        + '<div class="muted">' + [esc(c.city || ''), esc(c.year || ''), ZONE_LABEL[c.zone]].filter(Boolean).join(' · ') + '</div>'
+        + '<div class="actions"><button data-action="disc-one" data-key="' + attr(candKey(c)) + '">＋ tal vez</button>'
+        + (c.url ? ' <a href="' + attr(c.url) + '" target="_blank" rel="noopener">ficha en ' + SOURCE_LABEL[c.sources[0]] + '</a>' : '')
+        + '</div>', { maxWidth: 280 });
+      m.addTo(mapState.zone);
+    });
   }
 
   function renderList() {
@@ -1292,7 +1493,7 @@
     el('progress').innerHTML = progressView();
     el('msg').innerHTML = msgView();
     const controls = document.querySelector('.controls');
-    if (controls) controls.classList.toggle('itin', state.view === 'itinerario');
+    if (controls) controls.classList.toggle('itin', state.view === 'itinerario' || state.view === 'descubrir');
     if (state.days.length && !activeDay()) setActiveDay(state.days[0].id);
     el('daybar').innerHTML = daybarView();
     if (state.view === 'mapa') renderMap();
@@ -1804,6 +2005,38 @@
     }),
     'item-delete': (el) => dayDo(async () => { applyDay(await store.deleteItem(Number(el.dataset.id))); }),
     'pdf-fotos': () => downloadPhotoPdf(),
+    'disc-run': () => runDiscover(),
+    'disc-import': () => importChosen(),
+    'disc-hours': (el) => { const d = discoverState(); d[el.dataset.field] = Math.max(0, Math.min(6, Number(el.value) || 0)); },
+    'disc-source': (el) => {
+      const d = discoverState(), src = el.dataset.src;
+      d.sources = el.checked ? d.sources.concat([src]).filter((x, i, a) => a.indexOf(x) === i) : d.sources.filter((x) => x !== src);
+      if (!d.sources.length) { d.sources = [src]; renderList(); }     // al menos una fuente
+    },
+    'disc-posible': (el) => { discoverState().include_posible = el.checked; },
+    'disc-zone': (el) => { discoverState().zone = el.dataset.zone; renderList(); },
+    'disc-pick': (el) => {
+      const d = discoverState();
+      d.chosen[el.dataset.key] = el.checked;
+      const box = el.closest('.cand');
+      if (box) box.classList.toggle('on', el.checked);
+      const btn = document.querySelector('[data-action="disc-import"]');
+      const chosen = Object.keys(d.chosen).filter((k) => d.chosen[k]).length;
+      if (btn) { btn.disabled = !chosen; btn.textContent = '＋ Importar ' + (chosen || '') + ' como tal vez'; }
+    },
+    'disc-all': () => {
+      const d = discoverState();
+      d.candidates.filter((c) => d.zone === 'todas' || c.zone === d.zone).forEach((c) => { d.chosen[candKey(c)] = true; });
+      renderList();
+    },
+    'disc-none': () => { discoverState().chosen = {}; renderList(); },
+    'disc-zone-map': (el) => { discoverState().showZone = el.checked; drawZone(window.L); },
+    'disc-one': (el) => {        // importar un candidato suelto desde el mapa
+      const d = discoverState();
+      d.chosen = { [el.dataset.key]: true };
+      if (mapState.map) mapState.map.closePopup();
+      importChosen();
+    },
     'pdf-cancel': () => { if (state.pdf) state.pdf.cancel = true; },
     'pdf-dismiss': () => { state.pdf = null; renderList(); },
     'item-confirm': (el) => dayDo(async () => {

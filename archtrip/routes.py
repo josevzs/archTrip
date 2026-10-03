@@ -1,9 +1,10 @@
 import io
 import re
+from pathlib import Path
 
-from flask import Blueprint, abort, jsonify, request, send_file
+from flask import Blueprint, abort, current_app, jsonify, request, send_file
 
-from . import access, audit, enrich, excel, export, prompt, uploads
+from . import access, audit, discover, enrich, excel, export, geo, prompt, uploads
 from .db import get_db, row, rows
 
 api = Blueprint("api", __name__)
@@ -744,6 +745,90 @@ def order_items(day_id):
         audit.log(db, "item_order", day["trip_id"], landmark_name=_day_label(day), snapshot=before)
     db.commit()
     return jsonify(_day_view(db, day_id))
+
+
+# -------------------------------------------------------------- descubrir
+
+def _discover_cache():
+    """La consulta a Wikidata tarda bastante, así que se guarda al lado de las fotos."""
+    return Path(current_app.config["DB_PATH"]).parent / "cache" / "wikidata"
+
+
+@api.post("/trips/<int:trip_id>/discover")
+def discover_candidates(trip_id):
+    """Qué más hay dentro del radio de acción del viaje. Solo propone: no escribe nada."""
+    db = get_db()
+    trip = _trip_or_404(db, trip_id)
+    body = request.get_json(silent=True) or {}
+    try:
+        hours_env = float(body.get("hours_env", discover.ENVELOPE_H))
+        hours_halo = float(body.get("hours_halo", discover.HALO_H))
+    except (TypeError, ValueError):
+        abort(400, description="Las horas tienen que ser un número")
+    try:
+        found = discover.discover(_trip_payload(db, trip), hours_env, hours_halo,
+                                  include_posible=bool(body.get("include_posible")),
+                                  sources=body.get("sources") or discover.SOURCES,
+                                  cache_dir=_discover_cache(), geocode=geo.nominatim_place,
+                                  budget=int(body.get("budget") or discover.IWAN_GEOCODE_BUDGET))
+    except Exception as exc:  # las tres fuentes son ajenas: si fallan todas, se reintenta
+        return jsonify({"error": "No se ha podido consultar ninguna fuente. Vuelve a intentarlo en un momento.",
+                        "detail": str(exc)[:200]}), 502
+    return jsonify(found)
+
+
+@api.post("/trips/<int:trip_id>/discover/import")
+def discover_import(trip_id):
+    """Mete los candidatos elegidos como hitos nuevos en «posible»: traen coordenadas y foto de
+    Wikidata, así que solo les falta el tiempo en coche y los enlaces (eso lo hace el enriquecido).
+    Queda en el diario como un solo cambio, así que se deshace de una vez."""
+    db = get_db()
+    _trip_or_404(db, trip_id)
+    items = (request.get_json(silent=True) or {}).get("items") or []
+    if not items:
+        abort(400, description="No se ha enviado ningún hito")
+    order = row(db.execute("SELECT COALESCE(MAX(sort_order), 0) AS m FROM landmarks WHERE trip_id = ?",
+                           (trip_id,)))["m"]
+    added, skipped = [], []
+    for it in items:
+        name = (it.get("name") or "").strip()
+        lat, lon = _to_float(it.get("lat")), _to_float(it.get("lon"))
+        if not name:
+            skipped.append({"name": "(sin nombre)", "why": "faltan datos"})
+            continue
+        architect = (it.get("architect") or "").strip()
+        key = excel.landmark_key(name, architect)
+        if row(db.execute("SELECT 1 AS x FROM landmarks WHERE trip_id = ? AND name_key = ?", (trip_id, key))):
+            skipped.append({"name": name, "why": "ya estaba en el viaje"})
+            continue
+        order += 1
+        srcs = [discover.SOURCE_NAME.get(s, s) for s in (it.get("sources") or [it.get("source")]) if s]
+        notes = "Importado de " + (" y ".join(srcs) or "una fuente externa")
+        for u in [it.get("url")] + [a.get("url") for a in (it.get("also") or [])]:
+            if u and u not in notes:
+                notes += "\n" + u
+        # una fuente sin coordenadas de verdad (solo ciudad o país) no sitúa el edificio: se deja
+        # pendiente y lo localiza el enriquecido como cualquier hito subido con Excel
+        exact = it.get("precision") in discover.EXACT and lat is not None and lon is not None
+        lm_id = db.execute(
+            "INSERT INTO landmarks (trip_id, name, architect, city, year, notes, lat, lon, geocode_status, "
+            "status, sort_order, name_key, wikidata_id, url_av, images_status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'posible', ?, ?, ?, ?, ?)",
+            (trip_id, name, architect, (it.get("city") or "").strip(), (it.get("year") or None), notes,
+             lat if exact else None, lon if exact else None, "exacta" if exact else "pendiente",
+             order, key, it.get("qid") or (it.get("ref") if it.get("source") == "wikidata" else None),
+             it.get("url_av"), "ok" if it.get("photo") else "pendiente")).lastrowid
+        if it.get("photo"):
+            db.execute("INSERT INTO landmark_images (landmark_id, kind, url, thumb, title, page_url, source, position) "
+                       "VALUES (?, 'foto', ?, ?, ?, ?, 'wikidata', 0)",
+                       (lm_id, it["photo"], it.get("thumb"), it.get("photo_title"), it.get("photo_page")))
+        added.append({"id": lm_id, "name": name})
+    if added:
+        audit.log(db, "bulk_create", trip_id, new=f"{len(added)} hitos descubiertos en Wikidata",
+                  snapshot=[a["id"] for a in added])
+    db.commit()
+    return jsonify({"added": added, "skipped": skipped,
+                    "pending": enrich.pending_counts(db, trip_id)}), 201
 
 
 # ----------------------------------------------------------------- enrich

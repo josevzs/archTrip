@@ -117,7 +117,38 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
      tampoco borra sus hitos.
    - Las fechas y las horas se guardan solas al terminar de escribirlas: el día no se recoloca
      hasta que se sale del campo, así se puede teclear un año entero sin que la lista salte.
-6. **Exportar**:
+6. **Descubrir qué más hay cerca** (pestaña *Descubrir*): propone obras que caen dentro del
+   radio de acción del viaje, para no depender solo de lo que uno ya tenía apuntado.
+   - Se define con dos números: la **envolvente** —cuántas horas en coche se está dispuesto a
+     alejarse de una parada o de un hito ya curado (2 h por defecto, unos 108 km)— y el
+     **desvío** admisible respecto a la carretera que une las paradas (1 h, unos 54 km), que es
+     lo que recoge lo que cae *de camino*. Con desvío 0 solo cuenta la envolvente.
+   - Las **fuentes** se eligen con las casillas de arriba:
+     - **Arquitectura Viva** — su mapa de obras publicadas. Es una selección editorial: poca
+       cantidad y bien escogida, en español y con enlace directo a la ficha de la revista, que
+       se guarda en el hito al importarlo.
+     - **Iwan Baan** — el portfolio del fotógrafo, que es casi un canon de la arquitectura
+       contemporánea. No publica coordenadas, así que sus obras se sitúan por el nombre de su
+       ciudad (y, si no la dice, por el título); mientras queden lugares por situar lo avisa y
+       basta con volver a buscar. Sus fotos son suyas: se enlaza la ficha, no se copian.
+     - **Wikidata** — enciclopédico: trae mucho más, pero sin criterio de calidad (al lado de
+       un museo de Ito aparecerá un edificio de oficinas cualquiera). Útil para rellenar huecos
+       y porque sus fotos son libres y se importan con el hito.
+   - Cada candidato enseña arquitecto, edificio, ciudad, año, a cuántos minutos queda de la
+     parada más cercana y en qué zona cae. Lo que aparece **en varias listas a la vez** se junta
+     en un solo candidato, se marca y se pone el primero: que una obra esté a la vez en
+     Arquitectura Viva y en Iwan Baan es la mejor señal de que merece el viaje.
+   - Lo que ya está en el viaje no se propone (se compara por nombre, por arquitecto y por
+     posición, así que tampoco se cuela repetido con otro nombre).
+   - Se marcan los que interesen y **＋ Importar** los añade como **tal vez**, nunca como
+     curados: entran en el circuito normal (se les busca foto, enlaces y tiempo en coche) y se
+     curan o se descartan como el resto. Si se importa de más, la página de administración lo
+     deshace de una vez, porque toda la importación es un solo cambio en el diario.
+   - En el **mapa** se dibuja lo que se está midiendo: la envolvente como discos alrededor de
+     paradas e hitos curados, el corredor como una banda a lo largo de la carretera y los
+     candidatos como rombos (rellenos si coinciden varias fuentes), con un botón para meterlos
+     sin salir del mapa. Se apaga con la casilla de la leyenda.
+7. **Exportar**:
    - **Itinerario (PDF)**, en dos versiones: **día a día** (compacto, para imprimir o mandar a
      los alumnos) y **con fotos** (el mismo, con la foto de cada hito al lado, todas al mismo
      ancho y sin deformar: las verticales salen más altas). El de fotos
