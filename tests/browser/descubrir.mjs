@@ -66,7 +66,8 @@ try {
   check('filters and tabs are hidden in this view', await evaluate(`getComputedStyle(document.getElementById('tabs')).display === 'none'`));
 
   // solo Arquitectura Viva: rápido y sin esperar a Wikidata
-  for (const src of ['iwanbaan', 'wikidata']) await evaluate(click(`[data-action="disc-source"][data-src="${src}"]`));
+  check('Wikidata comes switched off', await evaluate(`document.querySelector('[data-action="disc-source"][data-src="wikidata"]').checked === false`));
+  await evaluate(click('[data-action="disc-source"][data-src="iwanbaan"]'));
   await evaluate(click('[data-action="disc-run"]'));
   check('it says it is asking the sources', await waitFor(`/Preguntando/.test(document.getElementById('list').textContent)`, 3000));
   check('candidates come back', await waitFor(`${count('.cand')} > 0`, 90000));

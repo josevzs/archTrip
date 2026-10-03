@@ -1125,7 +1125,8 @@
   // ---- descubrir: qué más hay dentro del radio de acción del viaje (ver archtrip/discover.py)
   function discoverState() {
     if (!state.discover) {
-      state.discover = { hours_env: 2, hours_halo: 1, include_posible: false, sources: Object.keys(SOURCE_LABEL),
+      state.discover = { hours_env: 2, hours_halo: 1, include_posible: false,
+        sources: ['arquitecturaviva', 'iwanbaan'],
         busy: false, error: null, area: null, candidates: null, chosen: {}, zone: 'todas', importing: false };
     }
     return state.discover;
@@ -1173,8 +1174,9 @@
       + 'la <b>envolvente</b> (lo que está a unas horas en coche de una parada o de un hito ya curado) y el <b>desvío</b> '
       + 'admisible respecto a la carretera entre paradas. Las fuentes son el mapa de obras de <b>Arquitectura Viva</b> (selección '
       + 'editorial), el portfolio de <b>Iwan Baan</b> (no publica coordenadas: se sitúa por su ciudad) y <b>Wikidata</b> '
-      + '(enciclopédico, trae de todo). Nada se añade al viaje hasta que marques y pulses importar; entran como <b>tal vez</b>, '
-      + 'para curarlos como el resto.</div>';
+      + '(enciclopédico: trae mucho más, pero sin criterio — en un viaje a Japón son más de mil contra setenta y pico de '
+      + 'Arquitectura Viva, así que viene apagado y conviene encenderlo solo para rellenar huecos). Nada se añade al viaje '
+      + 'hasta que marques y pulses importar; entran como <b>tal vez</b>, para curarlos como el resto.</div>';
     let body = '';
     if (d.busy) {
       body = '<div class="progress">Preguntando a ' + d.sources.map((x) => SOURCE_LABEL[x]).join(', ')
