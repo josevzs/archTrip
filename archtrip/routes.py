@@ -750,8 +750,9 @@ def order_items(day_id):
 # -------------------------------------------------------------- descubrir
 
 def _discover_cache():
-    """La consulta a Wikidata tarda bastante, así que se guarda al lado de las fotos."""
-    return Path(current_app.config["DB_PATH"]).parent / "cache" / "wikidata"
+    """Las tres fuentes son lentas o grandes, así que lo descargado se guarda al lado de las
+    fotos. Es desechable: borrarla solo cuesta volver a descargarlas."""
+    return Path(current_app.config["DB_PATH"]).parent / "cache" / "fuentes"
 
 
 @api.post("/trips/<int:trip_id>/discover")
