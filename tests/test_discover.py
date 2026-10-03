@@ -303,6 +303,28 @@ def test_what_the_trip_already_has_is_not_proposed_again(fake_sources):
     assert sorted(c["name"] for c in out["candidates"]) == ["Casa da Música", "Casa das Artes"]
 
 
+def test_the_same_author_two_streets_away_is_flagged_not_hidden(fake_sources):
+    """El viaje está en inglés y las fuentes en español: «Casa das Artes» y «House of Arts» no se
+    reconocen por el nombre, así que se avisa por autor y cercanía."""
+    mine = [
+        # mismo autor, dos calles más allá: con coordenadas se mide la distancia
+        {"name": "Convent of Christ", "architect": "D. de Arruda y otros", "city": "Tomar",
+         "name_key": "convent of christ|d. de arruda y otros", "wikidata_id": None,
+         "lat": 39.605, "lon": -8.425, "status": "descartado"},
+        # y sin coordenadas de verdad (Iwan Baan sitúa por la ciudad), por el nombre del sitio
+        {"name": "House of Arts", "architect": "Eduardo Souto de Moura Arquitectos", "city": "Oporto",
+         "name_key": "house of arts|eduardo souto de moura arquitectos", "wikidata_id": None,
+         "lat": None, "lon": None, "status": "posible"},
+    ]
+    out = discover.discover(payload(STOPS, mine), cache_dir=fake_sources, geocode=geocode)
+    convento = next(c for c in out["candidates"] if c["name"].startswith("Convento"))
+    assert convento["dup_hint"] == {"name": "Convent of Christ", "status": "descartado", "km": 0.7}
+    casa = next(c for c in out["candidates"] if c["name"] == "Casa das Artes")
+    assert casa["dup_hint"] == {"name": "House of Arts", "status": "posible", "km": None}
+    # y los que no se parecen a nada no llevan aviso
+    assert next(c for c in out["candidates"] if c["name"] == "Casa da Música")["dup_hint"] is None
+
+
 def test_a_trip_without_coordinates_finds_nothing_and_says_so(fake_sources):
     out = discover.discover(payload([{"lat": None, "lon": None, "city": "Oporto"}]), cache_dir=fake_sources)
     assert out["candidates"] == [] and out["area"]["empty"] is True

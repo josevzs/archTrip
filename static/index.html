@@ -1165,6 +1165,8 @@
       + '<div class="name">' + esc(c.name) + '</div>'
       + '<div class="meta">' + meta + ' <span class="zone" title="' + attr(ZONE_HELP[c.zone] || '') + '">' + esc(ZONE_LABEL[c.zone] || c.zone) + '</span></div>'
       + '<div class="srcs">' + links + (c.sources.length > 1 ? ' <b>· en ' + c.sources.length + ' listas</b>' : '') + '</div>'
+      + (c.dup_hint ? '<div class="srcs warn" title="Mismo arquitecto a menos de 2 km: puede ser la misma obra con otro nombre">'
+        + '¿ya lo tienes? · ' + esc(c.dup_hint.name) + ' (' + esc(c.dup_hint.status) + ', a ' + c.dup_hint.km + ' km)</div>' : '')
       + '</div></label>';
   }
 

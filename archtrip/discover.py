@@ -468,6 +468,11 @@ def _name_words(fold, text):
     return {w for w in re.findall(r"\w{4,}", fold(text))}
 
 
+def _people(fold, text):
+    """Los apellidos: «architects», «associates» o «sekkei» los comparte media profesión."""
+    return _name_words(fold, text) - STUDIO_WORDS
+
+
 def same_building(fold, name_a, arch_a, lat_a, lon_a, name_b, arch_b, lat_b, lon_b):
     """¿Son el mismo edificio dos fichas de dos sitios distintos? Las coordenadas de una misma
     obra bailan cien metros entre fuentes, pero en Shinjuku o en una Expo hay obras distintas a
@@ -485,7 +490,7 @@ def same_building(fold, name_a, arch_a, lat_a, lon_a, name_b, arch_b, lat_b, lon
         return True
     if fa and fb and (fa in fb or fb in fa):
         return True
-    return bool(_name_words(fold, arch_a) & _name_words(fold, arch_b))
+    return bool(_people(fold, arch_a) & _people(fold, arch_b))
 
 
 def known(landmarks):
@@ -494,8 +499,8 @@ def known(landmarks):
     return {
         "qids": {lm["wikidata_id"] for lm in landmarks if lm.get("wikidata_id")},
         "keys": {lm["name_key"] for lm in landmarks if lm.get("name_key")},
-        "mine": [(lm.get("name") or "", lm.get("architect") or "", lm.get("lat"), lm.get("lon"))
-                 for lm in landmarks],
+        "mine": [(lm.get("name") or "", lm.get("architect") or "", lm.get("lat"), lm.get("lon"),
+                  lm.get("status"), normalise(lm.get("city"))) for lm in landmarks],
         "key_of": landmark_key, "fold": normalise,
     }
 
@@ -510,7 +515,34 @@ def is_known(cand, seen):
     lat, lon = (cand["lat"], cand["lon"]) if cand.get("precision") in EXACT else (None, None)
     arch = ", ".join(cand["architects"])
     return any(same_building(seen["fold"], cand["name"], arch, lat, lon, name, architect, mlat, mlon)
-               for name, architect, mlat, mlon in seen["mine"])
+               for name, architect, mlat, mlon, _, _city in seen["mine"])
+
+
+DUP_HINT_KM = 2.0
+
+
+def dup_hint(cand, seen):
+    """Dos obras del mismo autor a menos de dos kilómetros suelen ser la misma escrita de otra
+    manera: el viaje está en inglés o en japonés y Arquitectura Viva publica en español, así que
+    «Jardín de infancia Fuji» y «Fuji Kindergarten» no se reconocen por el nombre. No se oculta
+    —a veces son dos obras de verdad, en Ginza hay tres de Kuma—: se avisa y decide quien cura."""
+    who = _people(seen["fold"], ", ".join(cand["architects"]))
+    if not who:
+        return None
+    exact = cand.get("precision") in EXACT
+    place = seen["fold"](cand.get("city") or cand.get("country") or "")
+    best = None
+    for name, architect, lat, lon, status, city in seen["mine"]:
+        if not (who & _people(seen["fold"], architect)):
+            continue
+        if exact and lat is not None:
+            km = haversine_km(cand["lat"], cand["lon"], lat, lon)
+            if km <= DUP_HINT_KM and (best is None or km < best["km"]):
+                best = {"name": name, "status": status, "km": round(km, 1)}
+        elif not exact and place and city and (place in city or city in place):
+            # sin coordenadas de verdad solo se puede comparar el sitio por su nombre
+            best = best or {"name": name, "status": status, "km": None}
+    return best
 
 
 def merge_sources(cands, fold):
@@ -534,7 +566,8 @@ def merge_sources(cands, fold):
             continue
         hit["sources"].append(c["source"])
         # lo que falte, de quien lo tenga; y gana la posición más precisa
-        for k in ("thumb", "photo", "photo_title", "photo_page", "year", "city", "country", "url_av"):
+        for k in ("thumb", "photo", "photo_title", "photo_page", "year", "city", "country", "url_av",
+                  "dup_hint"):
             if not hit.get(k) and c.get(k):
                 hit[k] = c[k]
         if hit["precision"] not in EXACT and c["precision"] in EXACT:
@@ -606,7 +639,7 @@ def discover(payload, hours_env=ENVELOPE_H, hours_halo=HALO_H, include_posible=F
         stop = min(located_stops, key=lambda s: haversine_km(cand["lat"], cand["lon"], s["lat"], s["lon"]),
                    default=None) if zone != "pais" else None
         km = haversine_km(cand["lat"], cand["lon"], stop["lat"], stop["lon"]) if stop else None
-        out.append(dict(cand, zone=zone,
+        out.append(dict(cand, zone=zone, dup_hint=dup_hint(cand, seen),
                         architect=", ".join(cand["architects"]) or "Sin arquitecto en la fuente",
                         stop_city=stop["city"] if stop else None,
                         drive_minutes=round(drive_minutes(km)) if km is not None else None,
