@@ -178,7 +178,8 @@ def test_iwan_baan_comes_from_its_own_map_with_coordinates_and_a_photo(fake_sour
     assert casa["name"] == "Casa das Artes"                      # el guion largo parte el título
     assert casa["architects"] == ["Eduardo Souto de Moura"]      # del índice, sin repetir el estudio
     assert (casa["lat"], casa["lon"]) == (41.158, -8.628) and casa["precision"] == "exacta"
-    assert casa["city"] == "Porto" and casa["year"] == "1991"
+    # de los dos lugares del proyecto, el que menos obras tiene es la ciudad y el otro el país
+    assert (casa["city"], casa["country"]) == ("Porto", "Portugal") and casa["year"] == "1991"
     assert casa["thumb"].endswith("-320x0-c-default.jpg")        # la de la lista
     assert casa["photo"].endswith("-750x0-c-default.jpg")        # la mayor del srcset, para la ficha
     assert casa["photo_page"] == casa["url"] == "https://iwan.com/portfolio/casa-das-artes/"
@@ -186,6 +187,8 @@ def test_iwan_baan_comes_from_its_own_map_with_coordinates_and_a_photo(fake_sour
     assert [c["ref"] for c in got] == ["100", "101"]
     sin_indice = next(c for c in got if c["ref"] == "101")
     assert sin_indice["architects"] == ["Anónimo"]               # del propio título
+    # con un solo lugar no hay forma de saber si es ciudad o país: se deja como lugar
+    assert (sin_indice["city"], sin_indice["country"]) == ("Portugal", None)
 
 
 def test_wikidata_groups_architects_and_brings_the_commons_photo(fake_sources):

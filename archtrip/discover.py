@@ -280,7 +280,9 @@ def _iwan_photo(img):
 def iwan_candidates(box, cache_dir=None):
     index = iwan_index(cache_dir)
     archs = {a["id"]: _clean(a["name"]) for a in index["architects"]}
-    places = {t["id"]: _clean(t["name"]) for t in index["places"]}
+    # su taxonomía de lugares es plana («Japan», «Tokyo», «Yumeshima» al mismo nivel), así que
+    # lo específico se distingue por cuántas obras tiene cada término: el país las tiene a cientos
+    places = {t["id"]: (_clean(t["name"]), t.get("count") or 0) for t in index["places"]}
     meta = {p["id"]: p for p in index["projects"]}
     out = []
     for p in iwan_map(cache_dir):
@@ -290,12 +292,13 @@ def iwan_candidates(box, cache_dir=None):
         name, tail = _split_title(p.get("title"))
         extra = meta.get(p.get("id"), {})
         authors = [archs[a] for a in (extra.get("architects") or []) if a in archs] or ([tail] if tail else [])
-        where = [places[t] for t in (extra.get("places") or []) if t in places]
+        where = sorted((places[t] for t in (extra.get("places") or []) if t in places), key=lambda x: x[1])
         photo = _iwan_photo(p.get("img"))
         out.append({
             "source": "iwanbaan", "ref": str(p.get("id")), "name": name,
             "architects": _dedupe_authors(authors), "lat": lat, "lon": lon,
-            "city": where[0] if where else None, "country": where[-1] if where else None,
+            "city": where[0][0] if where else None,
+            "country": where[-1][0] if len(where) > 1 else None,
             "year": (extra.get("date") or "")[:4] or None, "precision": "exacta",
             "url": p.get("link"), "photo_title": name, "photo_page": p.get("link"), **photo,
         })

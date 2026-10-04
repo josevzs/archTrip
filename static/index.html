@@ -1327,9 +1327,10 @@
   function clusterPhotoIcon(cluster) {
     const markers = cluster.getAllChildMarkers();
     const thumbs = markers.map((m) => m.options.thumb).filter(Boolean).slice(0, 2);
-    const html = '<div class="phcluster">' + thumbs.map((t) => '<i style="background-image:url(\'' + t + '\')"></i>').join('')
-      + '<span>' + (thumbs.length ? '+' + (markers.length - thumbs.length) : markers.length) + '</span></div>';
-    return L.divIcon({ html, className: '', iconSize: [36 * thumbs.length + 26, 38], iconAnchor: [18, 19] });
+    const rest = markers.length - thumbs.length;    // con dos fotos y nada detrás, el «+0» sobra
+    const tag = thumbs.length ? (rest ? '<span>+' + rest + '</span>' : '') : '<span>' + markers.length + '</span>';
+    const html = '<div class="phcluster">' + thumbs.map((t) => '<i style="background-image:url(\'' + t + '\')"></i>').join('') + tag + '</div>';
+    return L.divIcon({ html, className: '', iconSize: [36 * thumbs.length + (tag ? 26 : 0), 38], iconAnchor: [18, 19] });
   }
 
   // Cluster bubble: count in the middle, ring split by status colours.

@@ -106,7 +106,9 @@ try {
 
   // importar desde el mapa no debe reconstruir el mapa: ni el encuadre ni el zoom se mueven
   await evaluate(`document.getElementById('map').dataset.sentinel = 'vivo'`);
-  const pane = await evaluate(`(document.querySelector('.leaflet-map-pane')||{style:{}}).style.transform || ''`);
+  // la posición en pantalla de la parada 1: si el mapa no se mueve, no cambia
+  const anchor = `((document.querySelector('.stopicon')||{}).parentElement||{style:{}}).style.transform || ''`;
+  const pane = await evaluate(anchor);
   const left = await evaluate(count('.candico'));
   await evaluate(click('.candico'));
   await sleep(700);
@@ -114,7 +116,7 @@ try {
   await evaluate(click('[data-action="disc-one"]'));
   check('importing from the map reports it', await waitFor(`/importado/.test(document.getElementById('msg').textContent)`, 30000));
   check('the map was not rebuilt', await evaluate(`(document.getElementById('map')||{dataset:{}}).dataset.sentinel === 'vivo'`));
-  check('and it did not move', await evaluate(`(document.querySelector('.leaflet-map-pane')||{style:{}}).style.transform || ''`) === pane);
+  check('and it did not move', await evaluate(anchor) === pane, pane);
   check('one candidate less on the map', await waitFor(`${count('.candico')} === ${left - 1}`, 10000));
 
   // ---- el mapa con las fotos encima
@@ -139,7 +141,11 @@ try {
   }
   const fresh = (await (await fetch(`${BASE}/api/trips/${TRIP}`)).json()).landmarks.find((l) => l.id === victim.id);
   check('the landmark starts with no pictures', fresh.images.length === 0, victim.name);
-  await goto(`${BASE}/#/viaje/${TRIP}/hito/${victim.id}`, 1500);
+  // cambiar el hash no recarga: hay que releer el viaje para que la ficha vea que ya no hay foto
+  await send('Page.navigate', { url: `${BASE}/#/viaje/${TRIP}/hito/${victim.id}` });
+  await sleep(300);
+  await send('Page.reload', { ignoreCache: true });
+  await sleep(2500);
   check('the ficha opens', await waitFor(`!!document.getElementById('detail')`, 20000), victim.name);
   check('and offers to fish a photo from the web',
     await waitFor(`!!document.querySelector('[data-action="web-image"]')`, 10000), victim.name);
