@@ -1180,6 +1180,27 @@
       + '</div></label>';
   }
 
+  // Lo mismo que enseña la ficha del candidato en la lista, para el popup del mapa: con la foto
+  // delante se sabe de qué va la obra sin salir a abrir la fuente.
+  function candPopup(c) {
+    const pic = c.thumb
+      ? (c.url ? '<a href="' + attr(c.url) + '" target="_blank" rel="noopener" title="Ver la ficha en ' + attr(SOURCE_LABEL[c.sources[0]]) + '">' : '')
+        + '<img src="' + attr(c.thumb) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' + (c.url ? '</a>' : '')
+      : '';
+    const meta = [c.city, c.year, c.drive_minutes != null ? minutesText(c.drive_minutes) + ' desde ' + (c.stop_city || '') : null]
+      .filter(Boolean).map(esc).join(' · ');
+    const links = c.sources.map((src, i) => {
+      const url = i === 0 ? c.url : ((c.also || [])[i - 1] || {}).url;
+      return url ? '<a href="' + attr(url) + '" target="_blank" rel="noopener">' + SOURCE_LABEL[src] + '</a>' : SOURCE_LABEL[src];
+    }).join(' · ');
+    return '<div class="arch">' + esc(c.architect) + '</div><div>' + esc(c.name) + '</div>' + pic
+      + '<div class="muted">' + meta + (meta ? ' · ' : '')
+      + '<span class="zone" title="' + attr(ZONE_HELP[c.zone] || '') + '">' + esc(ZONE_LABEL[c.zone] || c.zone) + '</span></div>'
+      + '<div class="muted small">' + links + (c.sources.length > 1 ? ' <b>· en ' + c.sources.length + ' listas</b>' : '') + '</div>'
+      + (c.dup_hint ? '<div class="small warn">¿ya lo tienes? · ' + esc(c.dup_hint.name) + ' (' + esc(c.dup_hint.status) + ')</div>' : '')
+      + '<div class="actions"><button data-action="disc-one" data-key="' + attr(candKey(c)) + '">＋ tal vez</button></div>';
+  }
+
   function discoverView() {
     const d = discoverState();
     const intro = '<div class="muted small" style="margin:0 0 12px">Busca obras que caigan dentro del radio de acción del viaje: '
@@ -1535,11 +1556,7 @@
                           iconSize: [11, 11], iconAnchor: [6, 6] }), zIndexOffset: -500,
       });
       m.bindTooltip(c.architect + ' — ' + c.name + ' · ' + c.sources.map((x) => SOURCE_LABEL[x]).join(' + '));
-      m.bindPopup('<div class="arch">' + esc(c.architect) + '</div><div>' + esc(c.name) + '</div>'
-        + '<div class="muted">' + [esc(c.city || ''), esc(c.year || ''), ZONE_LABEL[c.zone]].filter(Boolean).join(' · ') + '</div>'
-        + '<div class="actions"><button data-action="disc-one" data-key="' + attr(candKey(c)) + '">＋ tal vez</button>'
-        + (c.url ? ' <a href="' + attr(c.url) + '" target="_blank" rel="noopener">ficha en ' + SOURCE_LABEL[c.sources[0]] + '</a>' : '')
-        + '</div>', { maxWidth: 280 });
+      m.bindPopup(candPopup(c), { maxWidth: 280 });
       m.addTo(mapState.zone);
     });
   }

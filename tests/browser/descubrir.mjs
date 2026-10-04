@@ -113,6 +113,8 @@ try {
   await evaluate(click('.candico'));
   await sleep(700);
   check('a candidate on the map opens its popup', await evaluate(`!!document.querySelector('[data-action="disc-one"]')`));
+  check('with its photo, so you can see what it is',
+    await evaluate(count('.leaflet-popup-content img')) > 0);
   await evaluate(click('[data-action="disc-one"]'));
   check('importing from the map reports it', await waitFor(`/importado/.test(document.getElementById('msg').textContent)`, 30000));
   check('the map was not rebuilt', await evaluate(`(document.getElementById('map')||{dataset:{}}).dataset.sentinel === 'vivo'`));
