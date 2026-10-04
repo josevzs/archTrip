@@ -17,10 +17,10 @@ Y tres fuentes, de la más curada a la más amplia:
   estático (`/assets/uploads/obras/all-es.json`, ~4.400 obras, todas con coordenadas), con
   título y arquitecto en español y enlace directo a la ficha. Es una selección editorial: lo
   que una revista de arquitectura ha decidido publicar.
-- **Iwan Baan** (`iwanbaan`) — su portfolio (WordPress, 675 proyectos) es el canon de la
-  arquitectura contemporánea fotografiada, pero **no publica coordenadas**: solo lugar
-  (país/ciudad) y arquitecto, así que se sitúa geocodificando el nombre del lugar, con un tope
-  de llamadas por consulta para no colgarse (el resto aparece sin situar y se afina al repetir).
+- **Iwan Baan** (`iwanbaan`) — su portfolio es el canon de la arquitectura contemporánea
+  fotografiada. Su página de mapa se dibuja con un JSON propio (`/map/?json=1`): 667 proyectos
+  con coordenadas y foto. Los arquitectos no vienen ahí, así que se cruzan por id con el índice
+  de WordPress (`wp/v2/jetpack-portfolio` + la taxonomía `architects`).
 - **Wikidata** (`wikidata`) — todo lo que tiene arquitecto declarado (P84). Enciclopédico, no
   curado: trae de todo (estaciones, naves, iglesias de pueblo) pero también lo que falta en las
   otras dos, con coordenadas exactas y foto libre en Commons.
@@ -187,27 +187,43 @@ def av_candidates(box, cache_dir=None):
         if not in_box(lat, lon, box):
             continue
         slug = w.get("slug") or ""
-        thumb = None
+        thumb = photo = None
         if w.get("img"):
-            thumb = f"{AV_SITE}/assets/uploads/obras/{w['id']}/av_thumb__{w['img']}"
-            if w.get("hash"):
-                thumb += "?h=" + w["hash"]
+            base = f"{AV_SITE}/assets/uploads/obras/{w['id']}/"
+            tail = ("?h=" + w["hash"]) if w.get("hash") else ""
+            thumb, photo = base + "av_thumb__" + w["img"] + tail, base + w["img"] + tail
         out.append({
             "source": "arquitecturaviva", "ref": str(w.get("id")), "name": w.get("title") or slug,
             "architects": list(w.get("author") or []), "lat": lat, "lon": lon,
             "city": (w.get("city") or [None])[0], "country": (w.get("country") or [None])[0],
             "year": " ".join(str(w.get("date") or "").split()) or None, "precision": "exacta",
             "url": f"{AV_SITE}/obras/{slug}" if slug else AV_SITE + "/mapa",
-            "thumb": thumb,            # solo para reconocer el edificio en la lista
+            "thumb": thumb, "photo": photo, "photo_title": w.get("title") or slug,
+            "photo_page": f"{AV_SITE}/obras/{slug}" if slug else None,
             "url_av": f"{AV_SITE}/obras/{slug}" if slug else None,
         })
     return out
 
 
+def av_photo(url_or_slug, cache_dir=None):
+    """La foto que Arquitectura Viva publica de una obra suya, buscándola por su dirección en el
+    mismo JSON del mapa: para un hito que ya trae su enlace, es la foto exacta y gratis."""
+    slug = (url_or_slug or "").rstrip("/").rsplit("/", 1)[-1]
+    if not slug:
+        return None
+    for w in av_works(cache_dir):
+        if w.get("slug") == slug and w.get("img"):
+            base = f"{AV_SITE}/assets/uploads/obras/{w['id']}/"
+            tail = ("?h=" + w["hash"]) if w.get("hash") else ""
+            return {"url": base + w["img"] + tail, "thumb": base + "av_thumb__" + w["img"] + tail,
+                    "title": w.get("title") or slug, "page": f"{AV_SITE}/obras/{slug}",
+                    "source": "arquitecturaviva"}
+    return None
+
+
 # ------------------------------------------------------------- fuente: Iwan Baan
 
 IWAN_API = "https://iwan.com/wp-json/wp/v2/"
-IWAN_GEOCODE_BUDGET = 8      # lugares nuevos que se sitúan en cada consulta
 
 
 def _wp_all(path, fields, timeout=60):
@@ -243,133 +259,47 @@ def _split_title(title):
     return (parts[0].strip(), parts[-1].strip()) if len(parts) > 1 else (_clean(title), "")
 
 
-COARSE_KM = 120        # más ancho que esto es una región o un país, no sitúa un edificio
-PROJECT_KEY = "obra:"  # en la caché de lugares, lo geocodificado a partir del título de una obra
-EXACT = ("exacta", "geocodificado")   # precisiones que sí sitúan el edificio
+IWAN_MAP = "https://iwan.com/map/?json=1"
 
 
-def _is_coarse(place):
-    return place.get("extent_km") is None or place["extent_km"] > COARSE_KM
+def iwan_map(cache_dir=None, timeout=90):
+    """Lo que su página de mapa se baja para pintarse: proyecto, coordenadas y foto."""
+    return cached_json(cache_dir, "iwanbaan-mapa.json", lambda: _get(IWAN_MAP, timeout=timeout).json())
 
 
-def _place_counts(index, names):
-    counts = {}
-    for p in index["projects"]:
-        for t in p.get("places") or []:
-            if t in names:
-                counts[names[t]] = counts.get(names[t], 0) + 1
-    return counts
+def _iwan_photo(img):
+    """De su `srcset` se queda la más grande (750 px) para la ficha y la de 320 para la lista."""
+    src = (img or {}).get("src")
+    if not src:
+        return {}
+    sizes = re.findall(r"(https://[^\s]+?)\s+(\d+)w", (img or {}).get("srcset") or "")
+    big = max(sizes, key=lambda x: int(x[1]))[0] if sizes else src
+    return {"photo": big, "thumb": src}
 
 
-def _priority(index, names, located, box, hints):
-    """En qué orden conviene gastar las geocodificaciones: primero los lugares que suenan a algo
-    del viaje o que acompañan a un lugar ya situado dentro del rectángulo (si «Japan» ya está
-    dentro, las ciudades japonesas pasan al frente), y después los que más proyectos tienen."""
-    inside = {n for n, v in located.items() if v and in_box(v["lat"], v["lon"], box)}
-    friends = set()
-    for p in index["projects"]:
-        terms = [names[t] for t in (p.get("places") or []) if t in names]
-        if any(t in inside for t in terms):
-            friends.update(terms)
-    counts = _place_counts(index, names)
-    pend = [n for n in counts if n not in located]
-    pend.sort(key=lambda n: (0 if (n in friends or n.lower() in hints) else 1, -counts[n], n))
-    return pend
-
-
-def _coarse_only(index, names, located, box):
-    """Proyectos que caen en la zona solo por su país: su sitio hay que sacarlo del título
-    («Sendai Mediatheque», «Tsuruoka Cultural Center»), que es lo único que dice dónde están."""
-    out = []
-    for p in index["projects"]:
-        terms = [names[t] for t in (p.get("places") or []) if t in names]
-        inside = [located[t] for t in terms if located.get(t) and in_box(located[t]["lat"], located[t]["lon"], box)]
-        if inside and all(_is_coarse(v) for v in inside):
-            name, _ = _split_title(p.get("title", {}).get("rendered"))
-            out.append((p["slug"], name + ", " + terms[-1] if terms else name))
-    return out
-
-
-def iwan_places(cache_dir=None, geocode=None, box=None, budget=IWAN_GEOCODE_BUDGET, hints=()):
-    """Sitúa el portfolio geocodificando nombres, de pocos en pocos y guardando el resultado para
-    siempre: Iwan Baan no publica coordenadas y no vamos a tener a nadie esperando un minuto.
-    Primero los lugares (cada uno sitúa varios proyectos de golpe) y después, uno a uno, los
-    proyectos que solo saben decir el país. -> (lo que se sabe, cuánto queda por situar)."""
-    path = _cache_file(cache_dir, "iwanbaan-lugares.json")
-    located = {}
-    if path and path.exists():
-        try:
-            located = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            located = {}
-    if geocode is None or box is None:
-        return located, 0
+def iwan_candidates(box, cache_dir=None):
     index = iwan_index(cache_dir)
-    names = {p["id"]: _clean(p["name"]) for p in index["places"]}
-    pend = [(n, n) for n in _priority(index, names, located, box, {h.lower() for h in hints})]
-    done = 0
-    for key, query in pend:
-        if done >= budget:
-            break
-        try:
-            located[key] = geocode(query)
-        except Exception:
-            break                      # sin red: lo que haya y a seguir
-        done += 1
-    left = max(0, len(pend) - done)
-    if not left:                       # con los lugares resueltos, los proyectos sueltos
-        projects = [(PROJECT_KEY + s, q) for s, q in _coarse_only(index, names, located, box)
-                    if PROJECT_KEY + s not in located]
-        for key, query in projects:
-            if done >= budget:
-                break
-            try:
-                located[key] = geocode(query)
-            except Exception:
-                break
-            done += 1
-        left = max(0, len(projects) - max(0, done - len(pend)))
-    if path and done:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(located, ensure_ascii=False), encoding="utf-8")
-    return located, left
-
-
-def iwan_candidates(box, cache_dir=None, geocode=None, budget=IWAN_GEOCODE_BUDGET, hints=()):
-    """-> (candidatos, lugares que quedan por situar). Un proyecto situado solo por su país sale
-    igualmente, marcado `precision='pais'`: no se puede medir su desvío, pero en un viaje a Japón
-    merece la pena verlo (el enriquecido lo localizará al importarlo)."""
-    index = iwan_index(cache_dir)
-    names = {p["id"]: _clean(p["name"]) for p in index["places"]}
     archs = {a["id"]: _clean(a["name"]) for a in index["architects"]}
-    located, remaining = iwan_places(cache_dir, geocode, box, budget, hints)
+    places = {t["id"]: _clean(t["name"]) for t in index["places"]}
+    meta = {p["id"]: p for p in index["projects"]}
     out = []
-    for p in index["projects"]:
-        places = [names[t] for t in (p.get("places") or []) if t in names]
-        inside = [(n, located[n]) for n in places
-                  if located.get(n) and in_box(located[n]["lat"], located[n]["lon"], box)]
-        fine = [(n, v) for n, v in inside if not _is_coarse(v)]
-        if not inside:
+    for p in iwan_map(cache_dir):
+        lat, lon = p.get("lat"), p.get("lng")
+        if lat is None or lon is None or not in_box(lat, lon, box):
             continue
-        # el título del proyecto, si se ha podido geocodificar, manda sobre la ciudad y el país
-        own = located.get(PROJECT_KEY + (p.get("slug") or ""))
-        if own and not _is_coarse(own):
-            if not in_box(own["lat"], own["lon"], box):
-                continue
-            fine = [(None, own)]       # las coordenadas son de la obra; la ciudad, la que diga el hito
-        place, point = (fine or inside)[0]
-        name, tail = _split_title(p.get("title", {}).get("rendered"))
-        authors = [archs[a] for a in (p.get("architects") or []) if a in archs] or ([tail] if tail else [])
+        name, tail = _split_title(p.get("title"))
+        extra = meta.get(p.get("id"), {})
+        authors = [archs[a] for a in (extra.get("architects") or []) if a in archs] or ([tail] if tail else [])
+        where = [places[t] for t in (extra.get("places") or []) if t in places]
+        photo = _iwan_photo(p.get("img"))
         out.append({
-            "source": "iwanbaan", "ref": p.get("slug"), "name": name,
-            "architects": _dedupe_authors(authors), "lat": point["lat"], "lon": point["lon"],
-            "city": place if fine else None, "country": places[-1] if places else None,
-            "year": (p.get("date") or "")[:4] or None,
-            "precision": ("geocodificado" if own and not _is_coarse(own) else "lugar") if fine else "pais",
-            "url": p.get("link"), "thumb": None,     # sus fotos son suyas: solo enlazamos
-            "place_names": places,
+            "source": "iwanbaan", "ref": str(p.get("id")), "name": name,
+            "architects": _dedupe_authors(authors), "lat": lat, "lon": lon,
+            "city": where[0] if where else None, "country": where[-1] if where else None,
+            "year": (extra.get("date") or "")[:4] or None, "precision": "exacta",
+            "url": p.get("link"), "photo_title": name, "photo_page": p.get("link"), **photo,
         })
-    return out, remaining
+    return out
 
 
 STUDIO_WORDS = {"associates", "associati", "architects", "architecture", "architekten", "arquitectos",
@@ -512,9 +442,9 @@ def is_known(cand, seen):
         return True
     if seen["key_of"](cand["name"], ", ".join(cand["architects"])) in seen["keys"]:
         return True
-    lat, lon = (cand["lat"], cand["lon"]) if cand.get("precision") in EXACT else (None, None)
     arch = ", ".join(cand["architects"])
-    return any(same_building(seen["fold"], cand["name"], arch, lat, lon, name, architect, mlat, mlon)
+    return any(same_building(seen["fold"], cand["name"], arch, cand["lat"], cand["lon"],
+                             name, architect, mlat, mlon)
                for name, architect, mlat, mlon, _, _city in seen["mine"])
 
 
@@ -529,19 +459,13 @@ def dup_hint(cand, seen):
     who = _people(seen["fold"], ", ".join(cand["architects"]))
     if not who:
         return None
-    exact = cand.get("precision") in EXACT
-    place = seen["fold"](cand.get("city") or cand.get("country") or "")
     best = None
-    for name, architect, lat, lon, status, city in seen["mine"]:
-        if not (who & _people(seen["fold"], architect)):
+    for name, architect, lat, lon, status, _city in seen["mine"]:
+        if lat is None or not (who & _people(seen["fold"], architect)):
             continue
-        if exact and lat is not None:
-            km = haversine_km(cand["lat"], cand["lon"], lat, lon)
-            if km <= DUP_HINT_KM and (best is None or km < best["km"]):
-                best = {"name": name, "status": status, "km": round(km, 1)}
-        elif not exact and place and city and (place in city or city in place):
-            # sin coordenadas de verdad solo se puede comparar el sitio por su nombre
-            best = best or {"name": name, "status": status, "km": None}
+        km = haversine_km(cand["lat"], cand["lon"], lat, lon)
+        if km <= DUP_HINT_KM and (best is None or km < best["km"]):
+            best = {"name": name, "status": status, "km": round(km, 1)}
     return best
 
 
@@ -555,8 +479,8 @@ def merge_sources(cands, fold):
         for o in out:
             if c["source"] in o["sources"]:
                 continue
-            la, lo = (c["lat"], c["lon"]) if c["precision"] in EXACT else (None, None)
-            ob, oo = (o["lat"], o["lon"]) if o["precision"] in EXACT else (None, None)
+            la, lo = (c["lat"], c["lon"]) if c["precision"] == "exacta" else (None, None)
+            ob, oo = (o["lat"], o["lon"]) if o["precision"] == "exacta" else (None, None)
             if same_building(fold, c["name"], ", ".join(c["architects"]), la, lo,
                              o["name"], ", ".join(o["architects"]), ob, oo):
                 hit = o
@@ -566,11 +490,11 @@ def merge_sources(cands, fold):
             continue
         hit["sources"].append(c["source"])
         # lo que falte, de quien lo tenga; y gana la posición más precisa
-        for k in ("thumb", "photo", "photo_title", "photo_page", "year", "city", "country", "url_av",
-                  "dup_hint"):
+        for k in ("thumb", "photo", "photo_title", "photo_page", "photo_source", "year", "city",
+                  "country", "url_av", "dup_hint"):
             if not hit.get(k) and c.get(k):
                 hit[k] = c[k]
-        if hit["precision"] not in EXACT and c["precision"] in EXACT:
+        if hit["precision"] != "exacta" and c["precision"] == "exacta":
             hit.update(lat=c["lat"], lon=c["lon"], precision="exacta")
         for a in c["architects"]:
             if a not in hit["architects"]:
@@ -582,7 +506,7 @@ def merge_sources(cands, fold):
 # ------------------------------------------------------------------------ descubrir
 
 def discover(payload, hours_env=ENVELOPE_H, hours_halo=HALO_H, include_posible=False,
-             sources=SOURCES, cache_dir=None, geocode=None, limit=400, budget=IWAN_GEOCODE_BUDGET):
+             sources=SOURCES, cache_dir=None, limit=400):
     """-> {candidates, area}. Los candidatos salen ordenados por lo cerca que caen."""
     hours_env = min(float(hours_env), MAX_HOURS)
     hours_halo = min(float(hours_halo), MAX_HOURS)
@@ -593,7 +517,7 @@ def discover(payload, hours_env=ENVELOPE_H, hours_halo=HALO_H, include_posible=F
     r_env, r_halo = radius_km(hours_env), radius_km(hours_halo)
     area = {"hours_env": hours_env, "hours_halo": hours_halo, "centres": len(pts), "sources": sources,
             "radius_env_km": round(r_env, 1), "radius_halo_km": round(r_halo, 1),
-            "found": {}, "errors": {}, "places_left": 0}
+            "found": {}, "errors": {}}
     if not pts and not line:
         return {"candidates": [], "area": dict(area, empty=True)}
 
@@ -602,16 +526,13 @@ def discover(payload, hours_env=ENVELOPE_H, hours_halo=HALO_H, include_posible=F
     # la geometría, para poder pintarla en el mapa tal como se ha medido
     area["centre_points"] = [[round(p[0], 4), round(p[1], 4)] for p in pts]
     area["road"] = [[round(p[0], 4), round(p[1], 4)] for p in line]
-    hints = {s.get("city") for s in stops} | {s.get("country") for s in stops} \
-        | {lm.get("city") for lm in landmarks}
     raw = []
     for src in sources:
         try:
             if src == "arquitecturaviva":
                 got = av_candidates(box, cache_dir)
             elif src == "iwanbaan":
-                got, area["places_left"] = iwan_candidates(box, cache_dir, geocode, budget,
-                                                           {h for h in hints if h})
+                got = iwan_candidates(box, cache_dir)
             else:
                 got = wikidata_architecture(box, cache_dir)
         except Exception as exc:                     # una fuente caída no tumba a las demás
@@ -626,9 +547,7 @@ def discover(payload, hours_env=ENVELOPE_H, hours_halo=HALO_H, include_posible=F
     for cand in raw:
         env_km = nearest_km(cand["lat"], cand["lon"], pts) if pts else None
         halo_km = line_km(cand["lat"], cand["lon"], line) if line else None
-        if cand.get("precision") == "pais":
-            zone = "pais"                       # está en la zona, pero no se sabe dónde
-        elif env_km is not None and env_km <= r_env:
+        if env_km is not None and env_km <= r_env:
             zone = "envolvente"
         elif halo_km is not None and halo_km <= r_halo:
             zone = "corredor"
@@ -637,14 +556,13 @@ def discover(payload, hours_env=ENVELOPE_H, hours_halo=HALO_H, include_posible=F
         if zone is None or is_known(cand, seen):
             continue
         stop = min(located_stops, key=lambda s: haversine_km(cand["lat"], cand["lon"], s["lat"], s["lon"]),
-                   default=None) if zone != "pais" else None
+                   default=None)
         km = haversine_km(cand["lat"], cand["lon"], stop["lat"], stop["lon"]) if stop else None
-        out.append(dict(cand, zone=zone, dup_hint=dup_hint(cand, seen),
+        out.append(dict(cand, zone=zone, dup_hint=dup_hint(cand, seen), photo_source=cand["source"],
                         architect=", ".join(cand["architects"]) or "Sin arquitecto en la fuente",
                         stop_city=stop["city"] if stop else None,
                         drive_minutes=round(drive_minutes(km)) if km is not None else None,
-                        near_km=round(env_km if zone == "envolvente" else halo_km, 1)
-                        if zone in ("envolvente", "corredor") else None))
+                        near_km=round(env_km if zone == "envolvente" else halo_km, 1)))
     out = merge_sources(out, seen["fold"])
     out.sort(key=lambda c: (-len(c["sources"]), c["drive_minutes"] if c["drive_minutes"] is not None else 1e9,
                             c["name"]))

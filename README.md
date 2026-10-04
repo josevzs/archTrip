@@ -128,9 +128,8 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
        cantidad y bien escogida, en español y con enlace directo a la ficha de la revista, que
        se guarda en el hito al importarlo.
      - **Iwan Baan** — el portfolio del fotógrafo, que es casi un canon de la arquitectura
-       contemporánea. No publica coordenadas, así que sus obras se sitúan por el nombre de su
-       ciudad (y, si no la dice, por el título); mientras queden lugares por situar lo avisa y
-       basta con volver a buscar. Sus fotos son suyas: se enlaza la ficha, no se copian.
+       contemporánea: 667 obras con su sitio exacto y su foto, tal como las pinta el mapa de su
+       propia web.
      - **Wikidata** — enciclopédico: trae mucho más, pero sin criterio de calidad (al lado de
        un museo de Ito aparecerá un edificio de oficinas cualquiera). Útil para rellenar huecos
        y porque sus fotos son libres y se importan con el hito.
@@ -141,13 +140,14 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
    - Lo que ya está en el viaje no se propone (se compara por nombre, por arquitecto y por
      posición, así que tampoco se cuela repetido con otro nombre).
    - Se marcan los que interesen y **＋ Importar** los añade como **tal vez**, nunca como
-     curados: entran en el circuito normal (se les busca foto, enlaces y tiempo en coche) y se
-     curan o se descartan como el resto. Si se importa de más, la página de administración lo
+     curados: entran con su foto y su ficha en la fuente, y el sistema les completa los enlaces y
+     el tiempo en coche. Se curan o se descartan como el resto. Si se importa de más, la página de administración lo
      deshace de una vez, porque toda la importación es un solo cambio en el diario.
    - En el **mapa** se dibuja lo que se está midiendo: la envolvente como discos alrededor de
      paradas e hitos curados, el corredor como una banda a lo largo de la carretera y los
      candidatos como rombos (rellenos si coinciden varias fuentes), con un botón para meterlos
-     sin salir del mapa. Se apaga con la casilla de la leyenda.
+     sin salir del mapa —y al meterlos el mapa **se queda donde estaba**, sin perder el encuadre—.
+     Se apaga con la casilla de la leyenda.
 7. **Exportar**:
    - **Itinerario (PDF)**, en dos versiones: **día a día** (compacto, para imprimir o mandar a
      los alumnos) y **con fotos** (el mismo, con la foto de cada hito al lado, todas al mismo
@@ -174,6 +174,14 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
 - Volver a subir la ruta reemplaza las paradas y recalcula todos los tiempos.
 - Si el hito no se encuentra en el mapa se usa el centro de la ciudad y el tiempo se marca
   con `≈`. Si tampoco se encuentra la ciudad, aparece ⚠ y se puede corregir en *editar*.
+- **Si un hito se queda sin foto**, su ficha ofrece **🎣 pescar una foto de la web**: mira primero
+  su propia ficha en Arquitectura Viva o ArchDaily (que es la foto exacta de esa obra) y, si no,
+  busca en Google —hace falta configurar una clave gratuita, ver abajo—, en el buscador de
+  ArchDaily y en Openverse. Pega la primera que encaje; si no encaja ninguna lo dice, y siempre
+  queda *añadir foto o plano* pegando una dirección a mano.
+- El **mapa** tiene una casilla **fotos en el mapa**: en vez de puntos de colores enseña la foto de
+  cada hito sobre su sitio, y donde se juntan varios sale un grupo con las dos primeras y un `+N`.
+  Para ubicarse de un vistazo cuando ya hay fotos, es mucho más rápido que leer nombres.
 - Si el servicio de rutas no responde, el tiempo se estima por distancia en línea recta
   (×1,3 a 70 km/h) y se marca con `≈`.
 - **Enlaces a ArchDaily y Arquitectura Viva**: si las URLs van vacías, la app consulta el
@@ -201,6 +209,19 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
 - El mapa carga Leaflet y las teselas de OpenStreetMap por internet (también en la copia HTML).
 - Wikimedia pide un contacto en el User-Agent: se puede poner con la variable de entorno
   `ARCHTRIP_CONTACT` (p. ej. una URL o un email).
+
+### Buscar fotos en Google (opcional)
+
+El botón de pescar fotos funciona sin configurar nada, pero sus dos primeras fuentes solo cubren
+lo que esté publicado en Arquitectura Viva o ArchDaily. Para que mire además en Google Imágenes
+hacen falta dos variables de entorno, con una clave gratuita (100 búsquedas al día):
+
+1. En https://console.cloud.google.com, crear un proyecto y activar *Custom Search API*; copiar la
+   clave en `ARCHTRIP_GOOGLE_KEY`.
+2. En https://programmablesearchengine.google.com, crear un buscador con *Buscar en toda la web*
+   activado; copiar su identificador en `ARCHTRIP_GOOGLE_CX`.
+
+Sin esas dos variables, ese paso simplemente no existe y se pasa a las demás fuentes.
 
 ## Ejemplo real
 

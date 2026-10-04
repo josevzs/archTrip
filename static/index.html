@@ -127,6 +127,12 @@
   .cand input { margin: 2px 0 0; }
   .zone { border: 1px solid var(--line); padding: 0 4px; font-size: 11px; white-space: nowrap; }
   .candico { width: 11px; height: 11px; background: var(--bg); border: 2px solid #2a6ca8; transform: rotate(45deg); }
+  /* fotos sobre el mapa */
+  .phico { width: 46px; height: 34px; border: 2px solid var(--ink); background: var(--soft) center/cover no-repeat; position: relative; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+  .phico b { position: absolute; right: -6px; bottom: -6px; min-width: 14px; height: 14px; line-height: 14px; text-align: center; font-size: 10px; background: var(--ink); color: var(--bg); border-radius: 7px; padding: 0 2px; }
+  .phcluster { display: flex; box-shadow: 0 1px 3px rgba(0,0,0,.4); border: 2px solid var(--ink); background: var(--bg); }
+  .phcluster i { width: 36px; height: 34px; background: var(--soft) center/cover no-repeat; display: block; }
+  .phcluster span { font-size: 11px; line-height: 34px; padding: 0 4px; background: var(--ink); color: var(--bg); }
   .candico.dos { background: #2a6ca8; }
   .discbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 8px; }
   .discbar input[type=number] { width: 52px; font-family: inherit; font-size: 13px; }
@@ -353,9 +359,10 @@
   };
 
   const app = document.getElementById('app');
-  let savedView = 'fotos', savedHide = '1', savedSkip = '1';
+  let savedView = 'fotos', savedHide = '1', savedSkip = '1', savedPhotos = '0';
   try {
     savedView = localStorage.getItem('archtrip:view') || 'fotos';
+    savedPhotos = localStorage.getItem('archtrip:mapphotos') || '0';
     savedHide = localStorage.getItem('archtrip:hideRejected') || '1';
     savedSkip = localStorage.getItem('archtrip:skipRejected') || '1';
   } catch (e) { /* no storage */ }
@@ -369,6 +376,8 @@
     detail: null, detailImg: 0, addingImage: false, picker: null, activeDay: null, dayMode: savedDayMode === '1',
     pdf: null,          // { done, total, phase, cancel } mientras se prepara el PDF con fotos
     discover: null,     // { horas, fuentes, candidatos, elegidos… } de la vista Descubrir
+    mapPhotos: savedPhotos === '1',   // el mapa con las fotos sobre los puntos
+    fishing: null,      // hito al que se le está buscando una foto en la web
     hideRejected: savedHide === '1', skipRejected: savedSkip === '1',
     enrich: { running: false, remaining: 0, error: null },
     admin: { authed: null, sessions: [], open: null, changes: [], query: '', history: null, backups: [], busy: false, note: null },
@@ -486,6 +495,7 @@
     orderImages: (id, ids) => call('PUT', '/api/landmarks/' + id + '/images/order', { ids }),
     setImageKind: (id, imgId, kind) => call('PATCH', '/api/landmarks/' + id + '/images/' + imgId, { kind }),
     refreshImages: (id) => call('POST', '/api/landmarks/' + id + '/images/refresh'),
+    webImage: (id) => call('POST', '/api/landmarks/' + id + '/images/web'),
     enrichNext: (tripId) => call('POST', '/api/trips/' + tripId + '/enrich/next'),
     createDay: (tripId, body) => call('POST', '/api/trips/' + tripId + '/days', body || {}),
     patchDay: (id, fields) => call('PATCH', '/api/days/' + id, fields),
@@ -1240,12 +1250,17 @@
     try {
       const out = await store.discoverImport(state.trip.id, items);
       const added = out.added.length;
+      // los hitos vienen enteros en la respuesta: se meten en su sitio sin recargar el viaje,
+      // que es lo que antes reiniciaba el mapa (encuadre, zoom y popup abierto)
+      (out.added || []).forEach(applyLandmark);
+      if (out.pending) state.pending = out.pending;
       d.candidates = d.candidates.filter((c) => !d.chosen[candKey(c)]);
       d.chosen = {}; d.importing = false;
       state.msg = { kind: 'ok', text: added + (added === 1 ? ' hito importado' : ' hitos importados') + ' como tal vez'
         + (out.skipped.length ? ' (' + out.skipped.length + ' ya estaban)' : '')
-        + '. Se les está buscando foto, enlaces y tiempo en coche.' };
-      await loadTrip(state.trip.id, true);
+        + '. Se les está buscando enlaces y tiempo en coche.' };
+      renderList();
+      runEnrich();
     } catch (e) {
       d.importing = false; d.error = e.message || 'No se han podido importar'; renderList();
     }
@@ -1308,8 +1323,18 @@
     return leafletPromise;
   }
 
+  // En modo fotos, la burbuja enseña las dos primeras fotos y cuántas hay detrás.
+  function clusterPhotoIcon(cluster) {
+    const markers = cluster.getAllChildMarkers();
+    const thumbs = markers.map((m) => m.options.thumb).filter(Boolean).slice(0, 2);
+    const html = '<div class="phcluster">' + thumbs.map((t) => '<i style="background-image:url(\'' + t + '\')"></i>').join('')
+      + '<span>' + (thumbs.length ? '+' + (markers.length - thumbs.length) : markers.length) + '</span></div>';
+    return L.divIcon({ html, className: '', iconSize: [36 * thumbs.length + 26, 38], iconAnchor: [18, 19] });
+  }
+
   // Cluster bubble: count in the middle, ring split by status colours.
   function clusterIcon(cluster) {
+    if (state.mapPhotos) return clusterPhotoIcon(cluster);
     const markers = cluster.getAllChildMarkers();
     const counts = {};
     markers.forEach((m) => { counts[m.options.status] = (counts[m.options.status] || 0) + 1; });
@@ -1372,8 +1397,7 @@
         mapState.map.on('zoomend', () => { if (state.discover && state.discover.candidates) drawZone(window.L); });
         // landmarks cluster only when they really pile up (small radius); a small cluster opens a
         // list with curation buttons, a big one zooms in; identical spots spread out on max zoom
-        mapState.cluster = L.markerClusterGroup({ maxClusterRadius: 28, showCoverageOnHover: false, zoomToBoundsOnClick: false,
-          spiderfyOnMaxZoom: true, spiderfyDistanceMultiplier: 1.4, iconCreateFunction: clusterIcon }).addTo(mapState.map);
+        mapState.cluster = newCluster(L);
         mapState.cluster.on('clusterclick', (e) => {
           const markers = e.layer.getAllChildMarkers();
           if (markers.length <= CLUSTER_LIST_MAX) openClusterList(e.layer.getLatLng(), markers.map((m) => m.options.landmarkId));
@@ -1385,9 +1409,25 @@
     }).catch((e) => { el.innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; });
   }
 
+  // Las fotos sobre el mapa necesitan más aire entre burbujas que los puntos, o se tapan.
+  function newCluster(L) {
+    mapState.clusterPhotos = !!state.mapPhotos;
+    return L.markerClusterGroup({ maxClusterRadius: state.mapPhotos ? 64 : 28, showCoverageOnHover: false,
+      zoomToBoundsOnClick: false, spiderfyOnMaxZoom: true, spiderfyDistanceMultiplier: state.mapPhotos ? 2.6 : 1.4,
+      iconCreateFunction: clusterIcon }).addTo(mapState.map);
+  }
+
   // Un círculo con el color del estado: hueco si el hito no está en ningún día, y relleno con
   // el número del día si ya está colocado.
   function landmarkIcon(L, lm, offRoute, placed) {
+    if (state.mapPhotos) {
+      const main = mainPhoto(lm), day = (placed || assignedDays()).get(lm.id);
+      if (main && main.thumb) {
+        return L.divIcon({ className: '', iconSize: [46, 34], iconAnchor: [23, 17],
+          html: '<div class="phico" style="border-color:' + (COLORS[lm.status] || '#111') + ';background-image:url(\''
+            + main.thumb.replace(/'/g, '%27') + '\')">' + (day ? '<b>' + day + '</b>' : '') + '</div>' });
+      }
+    }
     const color = COLORS[lm.status] || '#111';
     const day = (placed || assignedDays()).get(lm.id);
     const fill = offRoute ? '#b3261e' : (day ? color : '#fff');
@@ -1398,6 +1438,17 @@
   function updateMarkers(L) {
     const layer = mapState.layer;
     layer.clearLayers();
+    if (mapState.clusterPhotos !== !!state.mapPhotos) {    // el radio de agrupación cambia con el modo
+      mapState.map.removeLayer(mapState.cluster);
+      const prev = mapState.cluster;
+      mapState.cluster = newCluster(L);
+      prev.off();
+      mapState.cluster.on('clusterclick', (e) => {
+        const markers = e.layer.getAllChildMarkers();
+        if (markers.length <= CLUSTER_LIST_MAX) openClusterList(e.layer.getLatLng(), markers.map((m) => m.options.landmarkId));
+        else e.layer.zoomToBounds({ padding: [30, 30] });
+      });
+    }
     mapState.cluster.clearLayers();
     mapState.markers = {};
     const items = visibleLandmarks();
@@ -1420,8 +1471,9 @@
       const p = [lm.lat, lm.lon];
       const offRoute = routePts.length > 0 && routePts.every((s) => km(s, p) > 150);
       // relleno con el número del día si ya está colocado; hueco si todavía no
+      const main = mainPhoto(lm);
       const m = L.marker(p, { icon: landmarkIcon(L, lm, offRoute, placed), status: lm.status, landmarkId: lm.id,
-                              offRoute: offRoute, riseOnHover: true });
+                              offRoute: offRoute, riseOnHover: true, thumb: main ? main.thumb : null });
       mapState.markers[lm.id] = m;
       m.bindTooltip(lm.architect + ' — ' + lm.name + (offRoute ? ' (¿mal localizado?)' : ''));
       m.bindPopup(() => popupView(state.landmarks.find((x) => x.id === lm.id) || lm), { maxWidth: 280 });
@@ -1435,7 +1487,9 @@
     }
     drawZone(L);
     const hidden = items.length - shown.length;
-    const legend = Object.keys(COLORS).map((s) => '<span><i style="background:' + COLORS[s] + '"></i>' + FILTER_LABEL[s] + '</span>').join('')
+    const legend = '<label class="check" title="Enseña la foto de cada hito sobre su punto; las que se juntan salen en grupo con un +N">'
+      + '<input type="checkbox" data-action="map-photos"' + (state.mapPhotos ? ' checked' : '') + '> fotos en el mapa</label>'
+      + Object.keys(COLORS).map((s) => '<span><i style="background:' + COLORS[s] + '"></i>' + FILTER_LABEL[s] + '</span>').join('')
       + (state.days.length ? '<span title="El número es el día del itinerario al que está asignado"><i class="hollow"></i>sin día<i class="filled" style="margin-left:10px"></i>día 1, 2, 3…</span>' : '');
     const off = shown.length && pts.length ? shown.filter((lm) => !mapState.map.getBounds().contains([lm.lat, lm.lon])).length : 0;
     document.getElementById('map-note').innerHTML = legend
@@ -1559,7 +1613,10 @@
       + (lm.notes ? '<div class="notes small">' + esc(lm.notes) + '</div>' : '')
       + '<div class="small" style="margin-top:10px"><button class="link" data-action="edit" data-id="' + lm.id + '">editar</button>'
       + ' <button class="link" data-action="add-image-form" data-id="' + lm.id + '">añadir foto o plano</button>'
-      + (STANDALONE ? '' : ' <button class="link" data-action="refresh-images" data-id="' + lm.id + '">buscar fotos otra vez</button>') + '</div>'
+      + (STANDALONE ? '' : ' <button class="link" data-action="refresh-images" data-id="' + lm.id + '">buscar fotos otra vez</button>')
+      + (STANDALONE || photos.length ? '' : ' <button class="link" data-action="web-image" data-id="' + lm.id + '"'
+        + ' title="Busca en la web por edificio y arquitecto (Google si hay clave, luego ArchDaily y Openverse) y pega la primera que encaje">'
+        + (state.fishing === lm.id ? 'pescando…' : '🎣 pescar una foto de la web') + '</button>') + '</div>'
       + (state.addingImage ? addImageView(lm) : '')
       + (state.editing === lm.id ? editView(lm) : '')
       + '<div class="keys">Teclas: <kbd>←</kbd> <kbd>→</kbd> hito anterior / siguiente · <kbd>↑</kbd> <kbd>↓</kbd> otra imagen · '
@@ -2150,6 +2207,23 @@
     'delete-image': async (el) => {
       try { applyLandmark(await store.deleteImage(Number(el.dataset.id), Number(el.dataset.img))); state.detailImg = Math.max(0, state.detailImg - 1); patchCard(state.landmarks.find((x) => x.id === Number(el.dataset.id))); renderDetail(); }
       catch (e) { fail(e); renderList(); }
+    },
+    'map-photos': (el) => {
+      state.mapPhotos = el.checked;
+      try { localStorage.setItem('archtrip:mapphotos', el.checked ? '1' : '0'); } catch (e) { /* ignore */ }
+      if (mapState.map && window.L) updateMarkers(window.L);
+    },
+    'web-image': async (el) => {
+      const id = Number(el.dataset.id);
+      if (state.fishing) return;
+      state.fishing = id; renderDetail();
+      try {
+        const r = await store.webImage(id);
+        applyLandmark(r.landmark);
+        state.fishing = null; state.detailImg = 0;
+        if (!r.found) state.msg = { kind: 'err', text: 'No se ha encontrado ninguna foto que sea de esa obra. Prueba a añadirla a mano con su dirección.' };
+        patchCard(r.landmark); renderDetail();
+      } catch (e) { state.fishing = null; fail(e); renderDetail(); }
     },
     'retry-enrich': () => { state.enrich.error = null; runEnrich(); },
     'save-copy': () => local.saveCopy(),

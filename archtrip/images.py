@@ -389,6 +389,62 @@ def wikipedia_lookup(name, lat=None, lon=None):
     return None
 
 
+GOOGLE_CSE = "https://www.googleapis.com/customsearch/v1"
+OPENVERSE = "https://api.openverse.org/v1/images/"
+
+
+def google_photo(name, architect="", site=""):
+    """-> la primera foto de Google Imágenes, o None si no hay clave configurada.
+
+    La página de resultados de Google no se puede leer desde un servidor (responde 302 a un
+    muro de consentimiento), pero su API de búsqueda sí, con una clave gratuita de 100
+    consultas al día: `ARCHTRIP_GOOGLE_KEY` + `ARCHTRIP_GOOGLE_CX` (un buscador programable
+    con «buscar en toda la web» activado). Sin esas variables, esto no existe y se pasa a las
+    otras fuentes."""
+    key, cx = os.environ.get("ARCHTRIP_GOOGLE_KEY"), os.environ.get("ARCHTRIP_GOOGLE_CX")
+    query = " ".join(x for x in (name, architect, site) if x).strip()
+    if not (key and cx and query):
+        return None
+    _throttle()
+    resp = requests.get(GOOGLE_CSE, params={"key": key, "cx": cx, "q": query, "searchType": "image",
+                                            "num": 5, "safe": "active", "imgSize": "large"},
+                        headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
+    if resp.status_code != 200:
+        return None
+    for hit in resp.json().get("items") or []:
+        img = hit.get("image") or {}
+        if (img.get("width") or 0) < 500:          # miniaturas y logotipos, fuera
+            continue
+        return {"url": hit.get("link"), "thumb": img.get("thumbnailLink") or hit.get("link"),
+                "title": hit.get("title") or name, "page": img.get("contextLink"), "source": "google"}
+    return None
+
+
+def openverse_photo(name, architect=""):
+    """-> {url, thumb, title, page, source} de la primera foto con licencia libre que de verdad
+    sea de esta obra, o None. Openverse busca en Flickr, Commons y demás, sin clave; de ahí salen
+    muchas obras contemporáneas que Wikidata no tiene fichadas."""
+    query = " ".join(x for x in (name, architect) if x).strip()
+    if not query:
+        return None
+    _throttle()
+    resp = requests.get(OPENVERSE, params={"q": query, "page_size": 10, "mature": "false"},
+                        headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
+    if resp.status_code != 200:
+        return None
+    for hit in resp.json().get("results") or []:
+        title = hit.get("title") or ""
+        url = hit.get("url")
+        # el buscador devuelve lo que se le parece: solo vale si el título es el del edificio
+        if not url or not (_same_keywords(title, name) or _distinctive(name) <= set(_words(title))):
+            continue
+        creator = hit.get("creator") or ""
+        return {"url": url, "thumb": hit.get("thumbnail") or url, "source": "openverse",
+                "title": title + (" · " + creator if creator else ""),
+                "page": hit.get("foreign_landing_url") or hit.get("url")}
+    return None
+
+
 def entity_info(qid):
     """Los datos de una ficha de Wikidata que ya conocemos por su id."""
     ents = _get(WIKIDATA_API, {"action": "wbgetentities", "ids": qid, "props": "claims|sitelinks",

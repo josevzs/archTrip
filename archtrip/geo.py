@@ -90,28 +90,6 @@ def nominatim_geocode(query, prefer_settlement=False):
     return float(hit["lat"]), float(hit["lon"])
 
 
-def nominatim_place(query):
-    """-> {lat, lon, kind, extent_km} o None. Como `nominatim_geocode`, pero dice además lo
-    grande que es lo que ha encontrado, que es como `discover` distingue una ciudad de un país
-    entero (una fuente que solo da «Japan» no sitúa nada)."""
-    _throttle_nominatim()
-    resp = requests.get(
-        NOMINATIM_URL,
-        params={"q": query, "format": "json", "limit": 1},
-        headers={"User-Agent": USER_AGENT, "Accept-Language": "es,en"},
-        timeout=TIMEOUT,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    if not data:
-        return None
-    hit = data[0]
-    box = [float(v) for v in (hit.get("boundingbox") or [])]
-    return {"lat": float(hit["lat"]), "lon": float(hit["lon"]),
-            "kind": hit.get("addresstype") or hit.get("type"),
-            "extent_km": round((box[1] - box[0]) * 111.32, 1) if len(box) == 4 else None}
-
-
 def osrm_drive(lat1, lon1, lat2, lon2):
     """-> (minutes, km) or None if OSRM can't route. Raises on network trouble."""
     url = f"{OSRM_URL}/{lon1},{lat1};{lon2},{lat2}"

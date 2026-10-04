@@ -24,7 +24,26 @@ AV_RAW = [
      "country": ["Portugal"], "city": [], "coords": "", "date": None},
 ]
 
-# --- Iwan Baan: WordPress (proyectos + taxonomías) ------------------------------
+# --- Iwan Baan: su mapa (coordenadas + foto) y el índice de WordPress (arquitectos) ---
+def _img(slug):
+    base = "https://iwan.com/wp-content/uploads/2020/01/" + slug
+    return {"src": base + "-320x0-c-default.jpg", "attr": {"width": 320, "height": 213},
+            "srcset": base + "-150x0-c-default.jpg 150w, " + base + "-320x0-c-default.jpg 320w, "
+                      + base + "-750x0-c-default.jpg 750w"}
+
+
+IWAN_MAP_RAW = [
+    {"id": 100, "title": "Casa das Artes &#8211; Souto de Moura", "link": "https://iwan.com/portfolio/casa-das-artes/",
+     "lat": 41.158, "lng": -8.628, "img": _img("casa-das-artes")},
+    {"id": 101, "title": "Torre sem Cidade &#8211; Anónimo", "link": "https://iwan.com/portfolio/torre-sem-cidade/",
+     "lat": 38.9, "lng": -9.0, "img": _img("torre")},
+    {"id": 102, "title": "Vitra Campus &#8211; Herzog &#038; de Meuron", "link": "https://iwan.com/portfolio/vitra/",
+     "lat": 47.601, "lng": 7.618, "img": _img("vitra")},
+    {"id": 103, "title": "Sin coordenadas", "link": "https://iwan.com/portfolio/sin-coordenadas/",
+     "lat": None, "lng": None, "img": {}},
+]
+
+
 IWAN_RAW = {
     "places": [{"id": 1, "name": "Porto", "count": 2}, {"id": 2, "name": "Portugal", "count": 3},
                {"id": 3, "name": "Germany", "count": 1}],
@@ -68,11 +87,6 @@ WD_RAW = {"results": {"bindings": [
     _wd("Q7", "Catedral de Sevilla", 37.38, -5.99, "Varios", "Sevilla"),
 ]}}
 
-PLACES = {"Porto": {"lat": 41.15, "lon": -8.61, "kind": "city", "extent_km": 20.0},
-          "Portugal": {"lat": 39.6, "lon": -8.0, "kind": "country", "extent_km": 600.0},
-          "Germany": {"lat": 51.0, "lon": 10.0, "kind": "country", "extent_km": 900.0}}
-
-
 class FakeResp:
     def __init__(self, data):
         self._data = data
@@ -88,6 +102,8 @@ def fake_sources(monkeypatch, tmp_path):
     def fake_get(url, params=None, timeout=60, accept=None):
         if "arquitecturaviva" in url:
             return FakeResp(AV_RAW)
+        if "iwan.com/map" in url:
+            return FakeResp(IWAN_MAP_RAW)
         if "iwan.com" in url:
             path = url.rstrip("/").rsplit("/", 1)[-1]
             return FakeResp(IWAN_RAW.get(path, []) if (params or {}).get("page", 1) == 1 else [])
@@ -99,10 +115,6 @@ def fake_sources(monkeypatch, tmp_path):
     monkeypatch.setattr(discover, "road_line", lambda stops, timeout=20:
                         [(s["lat"], s["lon"]) for s in stops if s.get("lat") is not None])
     return tmp_path / "cache"
-
-
-def geocode(name):
-    return PLACES.get(name)
 
 
 # ------------------------------------------------------------------ geometría
@@ -160,42 +172,20 @@ def test_arquitectura_viva_gives_coordinates_a_thumbnail_and_the_page(fake_sourc
     assert (fake_sources / "arquitecturaviva.json").exists()         # se queda para la próxima
 
 
-def test_iwan_baan_is_placed_by_its_place_name_and_the_title_carries_the_architect(fake_sources):
-    got, left = discover.iwan_candidates((38.0, -10.0, 42.0, -7.0), fake_sources, geocode)
-    assert left == 0
-    casa = next(c for c in got if c["ref"] == "casa-das-artes-souto-de-moura")
+def test_iwan_baan_comes_from_its_own_map_with_coordinates_and_a_photo(fake_sources):
+    got = discover.iwan_candidates((38.0, -10.0, 42.0, -7.0), fake_sources)
+    casa = next(c for c in got if c["ref"] == "100")
     assert casa["name"] == "Casa das Artes"                      # el guion largo parte el título
-    assert casa["architects"] == ["Eduardo Souto de Moura"]      # sin repetir el estudio
-    assert (casa["lat"], casa["lon"]) == (41.15, -8.61) and casa["city"] == "Porto"
-    assert casa["precision"] == "lugar" and casa["thumb"] is None   # sus fotos no se importan
-    assert casa["url"] == "https://iwan.com/portfolio/casa-das-artes/"
-    # un proyecto que solo dice «Portugal» no se puede situar: entra marcado como país
-    torre = next(c for c in got if c["ref"] == "torre-sem-cidade")
-    assert torre["precision"] == "pais" and torre["city"] is None and torre["architects"] == ["Anónimo"]
-    assert [c["ref"] for c in got] == ["casa-das-artes-souto-de-moura", "torre-sem-cidade"]  # Vitra fuera
-
-
-def test_places_are_geocoded_a_few_at_a_time_and_remembered(fake_sources):
-    """Y cuando los lugares ya están, se intenta situar por su título lo que solo decía el país."""
-    box = (38.0, -10.0, 42.0, -7.0)
-    calls = []
-
-    def counted(name):
-        calls.append(name)
-        return dict(PLACES, **{"Torre sem Cidade, Portugal":
-                               {"lat": 38.9, "lon": -9.0, "kind": "building", "extent_km": 0.3}}).get(name)
-
-    got, left = discover.iwan_candidates(box, fake_sources, counted, budget=1)
-    assert len(calls) == 1 and left == 2            # quedan dos lugares por situar
-    assert (fake_sources / "iwanbaan-lugares.json").exists()
-    got, left = discover.iwan_candidates(box, fake_sources, counted, budget=10)
-    assert left == 0 and len(got) == 2
-    # tres lugares y, ya resueltos esos, el título del proyecto que no tenía ciudad
-    assert calls == ["Portugal", "Porto", "Germany", "Torre sem Cidade, Portugal"]
-    torre = next(c for c in got if c["ref"] == "torre-sem-cidade")
-    assert torre["precision"] == "geocodificado" and (torre["lat"], torre["lon"]) == (38.9, -9.0)
-    discover.iwan_candidates(box, fake_sources, counted, budget=10)
-    assert len(calls) == 4                          # y no se vuelve a preguntar nada
+    assert casa["architects"] == ["Eduardo Souto de Moura"]      # del índice, sin repetir el estudio
+    assert (casa["lat"], casa["lon"]) == (41.158, -8.628) and casa["precision"] == "exacta"
+    assert casa["city"] == "Porto" and casa["year"] == "1991"
+    assert casa["thumb"].endswith("-320x0-c-default.jpg")        # la de la lista
+    assert casa["photo"].endswith("-750x0-c-default.jpg")        # la mayor del srcset, para la ficha
+    assert casa["photo_page"] == casa["url"] == "https://iwan.com/portfolio/casa-das-artes/"
+    # el de fuera del rectángulo y el que no tiene coordenadas no salen
+    assert [c["ref"] for c in got] == ["100", "101"]
+    sin_indice = next(c for c in got if c["ref"] == "101")
+    assert sin_indice["architects"] == ["Anónimo"]               # del propio título
 
 
 def test_wikidata_groups_architects_and_brings_the_commons_photo(fake_sources):
@@ -222,11 +212,11 @@ STOPS = [{"lat": 41.15, "lon": -8.61, "city": "Oporto", "country": "Portugal"},
 
 
 def test_near_things_come_in_far_things_do_not(fake_sources):
-    out = discover.discover(payload(STOPS), cache_dir=fake_sources, geocode=geocode)
+    out = discover.discover(payload(STOPS), cache_dir=fake_sources)
     zones = {c["name"]: c["zone"] for c in out["candidates"]}
     assert zones["Casa de Serralves, Oporto"] == "envolvente"      # a 5 km de Oporto
     assert zones["Convento de Cristo, Tomar"] == "corredor"        # de camino, con desvío
-    assert zones["Torre sem Cidade"] == "pais"                     # en Portugal, sin más detalle
+    assert zones["Casa das Artes"] == "envolvente"                 # la de Iwan Baan, en Oporto
     assert "Catedral de Sevilla" not in zones                      # a 400 km de todo
     serralves = next(c for c in out["candidates"] if c["name"].startswith("Casa de Serralves"))
     assert serralves["stop_city"] == "Oporto" and serralves["drive_minutes"] < 15
@@ -234,11 +224,14 @@ def test_near_things_come_in_far_things_do_not(fake_sources):
     assert out["area"]["radius_env_km"] == 107.7
     assert out["area"]["found"] == {"arquitecturaviva": 2, "iwanbaan": 2, "wikidata": 4}
     assert out["area"]["errors"] == {}
-    assert [c["drive_minutes"] for c in out["candidates"]][-1] is None   # los de país, al final
+    # lo que coincide en dos listas va primero; el resto, por lo cerca que cae
+    assert len(out["candidates"][0]["sources"]) == 2
+    resto = [c["drive_minutes"] for c in out["candidates"][1:]]
+    assert resto == sorted(resto)
 
 
 def test_the_same_building_in_two_sources_is_one_candidate_that_cites_both(fake_sources):
-    out = discover.discover(payload(STOPS), cache_dir=fake_sources, geocode=geocode)
+    out = discover.discover(payload(STOPS), cache_dir=fake_sources)
     convento = next(c for c in out["candidates"] if c["name"] == "Convento de Cristo, Tomar")
     assert convento["sources"] == ["arquitecturaviva", "wikidata"]      # mismo punto, dos listas
     assert convento["also"][0]["name"] == "Convento of Christ"
@@ -247,19 +240,19 @@ def test_the_same_building_in_two_sources_is_one_candidate_that_cites_both(fake_
 
 
 def test_wikidata_is_trimmed_first_never_the_curated_lists(fake_sources):
-    out = discover.discover(payload(STOPS), cache_dir=fake_sources, geocode=geocode, limit=2)
+    out = discover.discover(payload(STOPS), cache_dir=fake_sources, limit=2)
     a = out["area"]
     assert (a["candidates"], a["shown"], a["trimmed"]) == (6, 4, 2)
     # los cuatro de las listas curadas entran aunque el tope sea 2; se cae lo que solo tiene Wikidata
     assert not [c for c in out["candidates"] if c["sources"] == ["wikidata"]]
     assert {"Casa das Artes", "Torre sem Cidade"} <= {c["name"] for c in out["candidates"]}
     # y el orden no cambia por recortar
-    todo = discover.discover(payload(STOPS), cache_dir=fake_sources, geocode=geocode)["candidates"]
+    todo = discover.discover(payload(STOPS), cache_dir=fake_sources)["candidates"]
     assert [c["name"] for c in out["candidates"]] == [c["name"] for c in todo if c["sources"] != ["wikidata"]]
 
 
 def test_only_the_sources_asked_for(fake_sources):
-    out = discover.discover(payload(STOPS), sources=["arquitecturaviva"], cache_dir=fake_sources, geocode=geocode)
+    out = discover.discover(payload(STOPS), sources=["arquitecturaviva"], cache_dir=fake_sources)
     assert set(out["area"]["found"]) == {"arquitecturaviva"}
     assert all(c["sources"] == ["arquitecturaviva"] for c in out["candidates"])
 
@@ -273,13 +266,13 @@ def test_a_source_that_is_down_does_not_take_the_others_with_it(fake_sources, mo
         return real(url, params, timeout, accept)
 
     monkeypatch.setattr(discover, "_get", flaky)
-    out = discover.discover(payload(STOPS), cache_dir=fake_sources, geocode=geocode)
+    out = discover.discover(payload(STOPS), cache_dir=fake_sources)
     assert "wikidata" in out["area"]["errors"] and out["area"]["found"]["arquitecturaviva"] == 2
     assert out["candidates"]
 
 
 def test_without_a_corridor_what_is_only_on_the_way_drops_out(fake_sources):
-    out = discover.discover(payload(STOPS), hours_halo=0, cache_dir=fake_sources, geocode=geocode)
+    out = discover.discover(payload(STOPS), hours_halo=0, cache_dir=fake_sources)
     assert "Convento de Cristo, Tomar" not in [c["name"] for c in out["candidates"]]
 
 
@@ -294,11 +287,11 @@ def test_what_the_trip_already_has_is_not_proposed_again(fake_sources):
         # por el identificador de Wikidata
         {"name": "Jerónimos", "architect": "", "name_key": "jeronimos|", "wikidata_id": "Q5",
          "lat": None, "lon": None, "status": "posible"},
-        # un candidato situado solo por su país se descarta por el nombre, sin medir distancias
+        # y por el nombre, aunque las coordenadas de cada fuente bailen unos metros
         {"name": "Torre sem Cidade", "architect": "", "name_key": "torre sem cidade|", "wikidata_id": None,
-         "lat": 41.0, "lon": -8.0, "status": "posible"},
+         "lat": 38.901, "lon": -9.001, "status": "posible"},
     ]
-    out = discover.discover(payload(STOPS, mine), cache_dir=fake_sources, geocode=geocode)
+    out = discover.discover(payload(STOPS, mine), cache_dir=fake_sources)
     # queda lo que no está en la lista de arriba: la Casa da Música de Wikidata y la de Iwan Baan
     assert sorted(c["name"] for c in out["candidates"]) == ["Casa da Música", "Casa das Artes"]
 
@@ -307,20 +300,18 @@ def test_the_same_author_two_streets_away_is_flagged_not_hidden(fake_sources):
     """El viaje está en inglés y las fuentes en español: «Casa das Artes» y «House of Arts» no se
     reconocen por el nombre, así que se avisa por autor y cercanía."""
     mine = [
-        # mismo autor, dos calles más allá: con coordenadas se mide la distancia
         {"name": "Convent of Christ", "architect": "D. de Arruda y otros", "city": "Tomar",
          "name_key": "convent of christ|d. de arruda y otros", "wikidata_id": None,
          "lat": 39.605, "lon": -8.425, "status": "descartado"},
-        # y sin coordenadas de verdad (Iwan Baan sitúa por la ciudad), por el nombre del sitio
         {"name": "House of Arts", "architect": "Eduardo Souto de Moura Arquitectos", "city": "Oporto",
          "name_key": "house of arts|eduardo souto de moura arquitectos", "wikidata_id": None,
-         "lat": None, "lon": None, "status": "posible"},
+         "lat": 41.160, "lon": -8.630, "status": "posible"},
     ]
-    out = discover.discover(payload(STOPS, mine), cache_dir=fake_sources, geocode=geocode)
+    out = discover.discover(payload(STOPS, mine), cache_dir=fake_sources)
     convento = next(c for c in out["candidates"] if c["name"].startswith("Convento"))
     assert convento["dup_hint"] == {"name": "Convent of Christ", "status": "descartado", "km": 0.7}
     casa = next(c for c in out["candidates"] if c["name"] == "Casa das Artes")
-    assert casa["dup_hint"] == {"name": "House of Arts", "status": "posible", "km": None}
+    assert casa["dup_hint"] == {"name": "House of Arts", "status": "posible", "km": 0.3}
     # y los que no se parecen a nada no llevan aviso
     assert next(c for c in out["candidates"] if c["name"] == "Casa da Música")["dup_hint"] is None
 
@@ -341,10 +332,7 @@ def seed(client):
 
 
 @pytest.fixture
-def api_sources(fake_sources, monkeypatch):
-    """Como fake_sources, pero con el geocodificador de lugares que usa el endpoint."""
-    from archtrip import geo
-    monkeypatch.setattr(geo, "nominatim_place", geocode)
+def api_sources(fake_sources):
     return fake_sources
 
 
@@ -383,6 +371,7 @@ def test_importing_a_candidate_leaves_it_as_posible_with_its_links(client, fake_
     assert r.status_code == 201
     body = r.get_json()
     assert [a["name"] for a in body["added"]] == ["Convento de Cristo, Tomar"] and body["skipped"] == []
+    assert body["added"][0]["status"] == "posible" and "images" in body["added"][0]
 
     lm = next(l for l in client.get(f"/api/trips/{tid}").get_json()["landmarks"] if l["name"].startswith("Convento"))
     assert (lm["status"], lm["geocode_status"]) == ("posible", "exacta")
@@ -398,14 +387,16 @@ def test_importing_a_candidate_leaves_it_as_posible_with_its_links(client, fake_
     assert client.post(f"/api/trips/{tid}/discover/import", json={"items": []}).status_code == 400
 
 
-def test_a_candidate_without_real_coordinates_is_left_for_the_geocoder(client, fake_geo, api_sources):
+def test_a_candidate_from_iwan_baan_brings_its_photo_and_its_page(client, fake_geo, api_sources):
     tid = seed(client)
     cands = client.post(f"/api/trips/{tid}/discover", json={}).get_json()["candidates"]
-    torre = next(c for c in cands if c["name"] == "Torre sem Cidade")
-    client.post(f"/api/trips/{tid}/discover/import", json={"items": [torre]})
-    lm = next(l for l in client.get(f"/api/trips/{tid}").get_json()["landmarks"] if l["name"] == "Torre sem Cidade")
-    assert (lm["lat"], lm["lon"], lm["geocode_status"]) == (None, None, "pendiente")
-    assert "iwan.com" in lm["notes"]
+    casa = next(c for c in cands if c["name"] == "Casa das Artes")
+    client.post(f"/api/trips/{tid}/discover/import", json={"items": [casa]})
+    lm = next(l for l in client.get(f"/api/trips/{tid}").get_json()["landmarks"] if l["name"] == "Casa das Artes")
+    assert (lm["lat"], lm["lon"], lm["geocode_status"]) == (41.158, -8.628, "exacta")
+    assert "iwan.com" in lm["notes"] and lm["images_status"] == "ok"
+    assert lm["images"][0]["source"] == "iwanbaan" and lm["images"][0]["url"].endswith("-750x0-c-default.jpg")
+    assert lm["images"][0]["page_url"] == "https://iwan.com/portfolio/casa-das-artes/"
 
 
 def test_a_wikidata_photo_comes_with_the_landmark(client, fake_geo, api_sources):
@@ -416,6 +407,10 @@ def test_a_wikidata_photo_comes_with_the_landmark(client, fake_geo, api_sources)
     lm = next(l for l in client.get(f"/api/trips/{tid}").get_json()["landmarks"] if l["wikidata_id"] == "Q5")
     assert lm["images_status"] == "ok" and len(lm["images"]) == 1
     assert lm["images"][0]["source"] == "wikidata" and "Jer" in lm["images"][0]["title"]
+    # y el hito entero vuelve en la respuesta, para pintarlo sin recargar el viaje
+    added = client.post(f"/api/trips/{tid}/discover/import",
+                        json={"items": [c for c in cands if c["name"] == "Casa das Artes"]}).get_json()["added"]
+    assert added[0]["name"] == "Casa das Artes" and added[0]["images"] and added[0]["nearest_stop_city"] is None
 
 
 def test_an_import_is_one_entry_in_the_journal_and_undoes_in_one_click(client, fake_geo, api_sources):

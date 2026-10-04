@@ -103,9 +103,52 @@ try {
   check('the map draws the candidates', await waitFor(`${count('.candico')} > 0`, 30000));
   check('and the envelope as circles', await evaluate(count('#map path.leaflet-interactive, #map svg path')) > 0);
   check('the legend can switch the zone off', await evaluate(`!!document.querySelector('[data-action="disc-zone-map"]')`));
+
+  // importar desde el mapa no debe reconstruir el mapa: ni el encuadre ni el zoom se mueven
+  await evaluate(`document.getElementById('map').dataset.sentinel = 'vivo'`);
+  const pane = await evaluate(`(document.querySelector('.leaflet-map-pane')||{style:{}}).style.transform || ''`);
+  const left = await evaluate(count('.candico'));
+  await evaluate(click('.candico'));
+  await sleep(700);
+  check('a candidate on the map opens its popup', await evaluate(`!!document.querySelector('[data-action="disc-one"]')`));
+  await evaluate(click('[data-action="disc-one"]'));
+  check('importing from the map reports it', await waitFor(`/importado/.test(document.getElementById('msg').textContent)`, 30000));
+  check('the map was not rebuilt', await evaluate(`(document.getElementById('map')||{dataset:{}}).dataset.sentinel === 'vivo'`));
+  check('and it did not move', await evaluate(`(document.querySelector('.leaflet-map-pane')||{style:{}}).style.transform || ''`) === pane);
+  check('one candidate less on the map', await waitFor(`${count('.candico')} === ${left - 1}`, 10000));
+
+  // ---- el mapa con las fotos encima
+  check('the legend offers the photo mode', await evaluate(`!!document.querySelector('[data-action="map-photos"]')`));
+  await evaluate(click('[data-action="map-photos"]'));
+  await sleep(1200);
+  check('photos (or photo groups) are drawn on the points',
+    await evaluate(count('.phico')) + await evaluate(count('.phcluster')) > 0);
+  await evaluate(click('[data-action="map-photos"]'));
+  await sleep(800);
+  check('switching it off goes back to the dots', await evaluate(count('.phico')) + await evaluate(count('.phcluster')) === 0);
+
   await evaluate(click('[data-action="disc-zone-map"]'));
   await sleep(500);
-  check('switching it off clears the layer', await evaluate(count('.candico')) === 0);
+  check('switching the zone off clears the layer', await evaluate(count('.candico')) === 0);
+
+  // ---- la ficha: pescar una foto para un hito que no tiene ninguna
+  const all = (await (await fetch(`${BASE}/api/trips/${TRIP}`)).json()).landmarks;
+  let victim = all.find((l) => !l.images.length) || all.find((l) => l.images.length);
+  for (const im of victim.images || []) {          // se le quitan todas, para probar el pescador
+    await fetch(`${BASE}/api/landmarks/${victim.id}/images/${im.id}`, { method: 'DELETE' });
+  }
+  const fresh = (await (await fetch(`${BASE}/api/trips/${TRIP}`)).json()).landmarks.find((l) => l.id === victim.id);
+  check('the landmark starts with no pictures', fresh.images.length === 0, victim.name);
+  await goto(`${BASE}/#/viaje/${TRIP}/hito/${victim.id}`, 1500);
+  check('the ficha opens', await waitFor(`!!document.getElementById('detail')`, 20000), victim.name);
+  check('and offers to fish a photo from the web',
+    await waitFor(`!!document.querySelector('[data-action="web-image"]')`, 10000), victim.name);
+  await evaluate(click('[data-action="web-image"]'));
+  check('it finishes and the landmark ends up with a picture',
+    await waitFor(`!document.querySelector('[data-action="web-image"]')`, 120000));
+  const fished = (await (await fetch(`${BASE}/api/trips/${TRIP}`)).json()).landmarks.find((l) => l.id === victim.id);
+  check('saved with the source it came from', fished.images.length === 1, JSON.stringify(fished.images));
+  console.log('     foto pescada en:', (fished.images[0] || {}).source || 'ninguna');
 
   check('no console errors', consoleErrors.length === 0, consoleErrors.join(' | '));
 } catch (e) {

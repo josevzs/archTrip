@@ -169,6 +169,50 @@ def find_archdaily(name, architect, city="", country=""):
     return None
 
 
+OG_IMAGE = re.compile(r"""<meta[^>]+(?:property|name)=['"](?:og:image|twitter:image)['"][^>]*>""", re.I)
+OG_CONTENT = re.compile(r"""content=['"]([^'"]+)['"]""", re.I)
+
+
+def page_photo(url, title=""):
+    """La foto de portada que la propia página declara (`og:image`), que es la que sale cuando
+    alguien comparte el enlace. Para un hito que ya tiene su ficha en ArchDaily, es su foto."""
+    if not url:
+        return None
+    _throttle()
+    resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT, allow_redirects=True)
+    if resp.status_code != 200:
+        return None
+    for tag in OG_IMAGE.findall(resp.text[:400000]) or []:
+        found = OG_CONTENT.search(tag)
+        if found and found.group(1).startswith("http"):
+            return {"url": found.group(1), "thumb": found.group(1), "title": title or url,
+                    "page": url, "source": "archdaily" if "archdaily" in url else "web"}
+    return None
+
+
+def find_archdaily_photo(name, architect, city="", country=""):
+    """-> {url, title, page} de la foto principal del proyecto en ArchDaily, o None.
+
+    Su buscador ya devuelve la imagen destacada en el JSON, así que no hay que abrir la página.
+    Se exige lo mismo que para enlazar (`matches`, arquitecto o sitio): una foto equivocada es
+    peor que ninguna, porque luego sale impresa en el itinerario."""
+    words = architect_words(architect)
+    queries = ([_query(f"{name} {architect}")] if words else []) + [_query(name)]
+    for kind, query in [(k, q) for k in ("projects", "articles") for q in queries]:
+        for r in tolerant(_ad_search, kind, query)[:10] or []:
+            offices = " ".join(o.get("name", "") for o in (r.get("offices") or []) if isinstance(o, dict))
+            title = r.get("title", "")
+            images = r.get("featured_images") or {}
+            url = images.get("url_large") or images.get("url_medium") or images.get("url_small")
+            if not url or not matches(title, name, architect, offices, allow=[city]):
+                continue
+            confirmed = any(w in (tokens(title) | tokens(offices)) for w in words)
+            if confirmed or location_ok(r.get("location", ""), city, country) is not False:
+                return {"url": url, "thumb": images.get("url_medium") or url, "title": title,
+                        "page": (r.get("url") or "").split("?")[0], "source": "archdaily"}
+    return None
+
+
 # --------------------------------------------------------- arquitectura viva
 
 _AV_ITEM = re.compile(r'data-titulo="([^"]*)"[^>]*data-link="([^"]*)"[^>]*data-entidad="([^"]*)"')

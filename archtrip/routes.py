@@ -4,7 +4,7 @@ from pathlib import Path
 
 from flask import Blueprint, abort, current_app, jsonify, request, send_file
 
-from . import access, audit, discover, enrich, excel, export, geo, prompt, uploads
+from . import access, audit, discover, enrich, excel, export, images, links, prompt, uploads
 from .db import get_db, row, rows
 
 api = Blueprint("api", __name__)
@@ -432,6 +432,44 @@ def patch_landmark(lm_id):
     return jsonify(_landmark_or_404(db, lm_id))
 
 
+@api.post("/landmarks/<int:lm_id>/images/web")
+def fetch_web_image(lm_id):
+    """Pesca una foto de la web para un hito que se ha quedado sin ninguna.
+
+    La página de Google Imágenes no se puede leer desde un servidor (ni la de Bing ni la de
+    DuckDuckGo: redirigen, dan 403 o sirven una página señuelo), así que se prueban por orden:
+    **Google** por su API de búsqueda si hay clave (`ARCHTRIP_GOOGLE_KEY`/`ARCHTRIP_GOOGLE_CX`,
+    100 consultas gratis al día), la ficha del proyecto en **ArchDaily** y **Openverse** (Flickr,
+    Commons y demás, con licencia libre). Si no hay nada que encaje, se dice y ya está: siempre
+    queda pegar una dirección a mano."""
+    db = get_db()
+    lm = _landmark_or_404(db, lm_id)
+    try:
+        # si el hito ya tiene ficha en alguna de las dos revistas, su foto es la mejor y la más
+        # barata: la de Arquitectura Viva sale del mismo JSON que ya está descargado
+        found = (discover.av_photo(lm["url_av"], _discover_cache())
+                 or links.page_photo(lm["url_archdaily"], lm["name"])
+                 or images.google_photo(lm["name"], lm["architect"], lm["city"] or "")
+                 or links.find_archdaily_photo(lm["name"], lm["architect"], lm["city"] or "")
+                 or images.openverse_photo(lm["name"], lm["architect"]))
+    except Exception as exc:
+        return jsonify({"error": "No se ha podido buscar: %s" % str(exc)[:120]}), 502
+    if not found:
+        return jsonify({"found": False, "landmark": _landmark_or_404(db, lm_id)})
+    pos = row(db.execute("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM landmark_images "
+                         "WHERE landmark_id = ?", (lm_id,)))["p"]
+    img_id = db.execute(
+        "INSERT INTO landmark_images (landmark_id, kind, url, thumb, title, page_url, source, position) "
+        "VALUES (?, 'foto', ?, ?, ?, ?, ?, ?)",
+        (lm_id, found["url"], found.get("thumb"), found.get("title"), found.get("page"),
+         found["source"], pos)).lastrowid
+    db.execute("UPDATE landmarks SET images_status = 'ok' WHERE id = ?", (lm_id,))
+    img = row(db.execute("SELECT * FROM landmark_images WHERE id = ?", (img_id,)))
+    audit.log(db, "image_add", lm["trip_id"], lm_id, lm["name"], new=found["source"], snapshot=img)
+    db.commit()
+    return jsonify({"found": True, "source": found["source"], "landmark": _landmark_or_404(db, lm_id)})
+
+
 @api.post("/landmarks/<int:lm_id>/images/refresh")
 def refresh_images(lm_id):
     """Drop the fetched images and queue a new search (the enrich loop does the work)."""
@@ -770,8 +808,7 @@ def discover_candidates(trip_id):
         found = discover.discover(_trip_payload(db, trip), hours_env, hours_halo,
                                   include_posible=bool(body.get("include_posible")),
                                   sources=body.get("sources") or discover.SOURCES,
-                                  cache_dir=_discover_cache(), geocode=geo.nominatim_place,
-                                  budget=int(body.get("budget") or discover.IWAN_GEOCODE_BUDGET))
+                                  cache_dir=_discover_cache())
     except Exception as exc:  # las tres fuentes son ajenas: si fallan todas, se reintenta
         return jsonify({"error": "No se ha podido consultar ninguna fuente. Vuelve a intentarlo en un momento.",
                         "detail": str(exc)[:200]}), 502
@@ -780,9 +817,10 @@ def discover_candidates(trip_id):
 
 @api.post("/trips/<int:trip_id>/discover/import")
 def discover_import(trip_id):
-    """Mete los candidatos elegidos como hitos nuevos en «posible»: traen coordenadas y foto de
-    Wikidata, así que solo les falta el tiempo en coche y los enlaces (eso lo hace el enriquecido).
-    Queda en el diario como un solo cambio, así que se deshace de una vez."""
+    """Mete los candidatos elegidos como hitos nuevos en «posible»: traen coordenadas y, los que la
+    tengan, la foto de su fuente, así que solo les falta el tiempo en coche y los enlaces (eso lo
+    hace el enriquecido). Queda en el diario como un solo cambio, así que se deshace de una vez,
+    y devuelve los hitos enteros para que la vista los pinte sin recargar nada."""
     db = get_db()
     _trip_or_404(db, trip_id)
     items = (request.get_json(silent=True) or {}).get("items") or []
@@ -808,9 +846,8 @@ def discover_import(trip_id):
         for u in [it.get("url")] + [a.get("url") for a in (it.get("also") or [])]:
             if u and u not in notes:
                 notes += "\n" + u
-        # una fuente sin coordenadas de verdad (solo ciudad o país) no sitúa el edificio: se deja
-        # pendiente y lo localiza el enriquecido como cualquier hito subido con Excel
-        exact = it.get("precision") in discover.EXACT and lat is not None and lon is not None
+        # las tres fuentes dan coordenadas; si alguna vez faltan, lo localiza el enriquecido
+        exact = lat is not None and lon is not None
         lm_id = db.execute(
             "INSERT INTO landmarks (trip_id, name, architect, city, year, notes, lat, lon, geocode_status, "
             "status, sort_order, name_key, wikidata_id, url_av, images_status) "
@@ -821,14 +858,18 @@ def discover_import(trip_id):
              it.get("url_av"), "ok" if it.get("photo") else "pendiente")).lastrowid
         if it.get("photo"):
             db.execute("INSERT INTO landmark_images (landmark_id, kind, url, thumb, title, page_url, source, position) "
-                       "VALUES (?, 'foto', ?, ?, ?, ?, 'wikidata', 0)",
-                       (lm_id, it["photo"], it.get("thumb"), it.get("photo_title"), it.get("photo_page")))
-        added.append({"id": lm_id, "name": name})
+                       "VALUES (?, 'foto', ?, ?, ?, ?, ?, 0)",
+                       (lm_id, it["photo"], it.get("thumb"), it.get("photo_title"), it.get("photo_page"),
+                        it.get("photo_source") or (it.get("sources") or ["externa"])[0]))
+        added.append(lm_id)
     if added:
-        audit.log(db, "bulk_create", trip_id, new=f"{len(added)} hitos descubiertos en Wikidata",
-                  snapshot=[a["id"] for a in added])
+        audit.log(db, "bulk_create", trip_id, new=f"{len(added)} hitos importados de otras listas",
+                  snapshot=added)
     db.commit()
-    return jsonify({"added": added, "skipped": skipped,
+    # los hitos enteros, para que la vista los pinte sin recargar el viaje (y sin mover el mapa)
+    rows_added = _attach_images(db, rows(db.execute(
+        LANDMARK_SELECT + f" WHERE l.id IN ({', '.join('?' * len(added))})", added))) if added else []
+    return jsonify({"added": rows_added, "skipped": skipped,
                     "pending": enrich.pending_counts(db, trip_id)}), 201
 
 

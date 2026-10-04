@@ -285,6 +285,44 @@ def _png_bytes(w=2400, h=1800):
     buf = io.BytesIO(); img.save(buf, "PNG"); return buf.getvalue()
 
 
+def test_fishing_a_photo_from_the_web(client, fake_geo, monkeypatch):
+    """El botón de la ficha para los hitos que se quedan sin foto: prueba Google (si hay clave),
+    luego ArchDaily y luego Openverse, y se queda con la primera que conteste."""
+    tid = new_trip(client)
+    upload(client, f"/api/trips/{tid}/route", make_xlsx(ROUTE_HEADER, ROUTE_ROWS))
+    upload(client, f"/api/trips/{tid}/landmarks", make_xlsx(LANDMARK_HEADER, LANDMARK_ROWS))
+    enrich_all(client, tid)
+    lm = client.get(f"/api/trips/{tid}").get_json()["landmarks"][0]
+    assert lm["images"] == []
+
+    monkeypatch.setattr(images, "google_photo", lambda *a, **k: None)      # sin clave configurada
+    monkeypatch.setattr(links, "find_archdaily_photo", lambda *a, **k: None)
+    monkeypatch.setattr(images, "openverse_photo", lambda *a, **k: None)
+    r = client.post(f"/api/landmarks/{lm['id']}/images/web")
+    assert r.status_code == 200 and r.get_json()["found"] is False
+    assert r.get_json()["landmark"]["images"] == []
+
+    monkeypatch.setattr(links, "find_archdaily_photo",
+                        lambda name, architect, city="", country="": {
+                            "url": "https://images.adsttc.com/x_large.jpg", "thumb": "https://images.adsttc.com/x.jpg",
+                            "title": "Casa da Música / OMA", "page": "https://www.archdaily.com/x",
+                            "source": "archdaily"})
+    r = client.post(f"/api/landmarks/{lm['id']}/images/web").get_json()
+    assert r["found"] is True and r["source"] == "archdaily"
+    img = r["landmark"]["images"][0]
+    assert img["url"] == "https://images.adsttc.com/x_large.jpg" and img["source"] == "archdaily"
+    assert img["page_url"] == "https://www.archdaily.com/x" and img["kind"] == "foto"
+    assert r["landmark"]["images_status"] == "ok"
+
+    # queda en el diario y se puede deshacer como cualquier foto pegada a mano
+    client.post("/api/admin/login", json={"password": "admin"})
+    sid = client.get("/api/admin/sessions").get_json()[0]["id"]
+    ch = next(c for c in client.get(f"/api/admin/sessions/{sid}/changes").get_json() if c["action"] == "image_add")
+    assert client.post(f"/api/admin/changes/{ch['id']}/revert").status_code == 200
+    assert client.get(f"/api/trips/{tid}").get_json()["landmarks"][0]["images"] == []
+    assert client.post("/api/landmarks/9999/images/web").status_code == 404
+
+
 def test_manual_images_url_and_upload(client, app, fake_geo):
     tid = new_trip(client)
     upload(client, f"/api/trips/{tid}/landmarks", make_xlsx(LANDMARK_HEADER, [LANDMARK_ROWS[1]]))
