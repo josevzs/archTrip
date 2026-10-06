@@ -95,6 +95,16 @@ CREATE TABLE IF NOT EXISTS day_items (
 );
 CREATE INDEX IF NOT EXISTS idx_day_items ON day_items (day_id, position);
 
+-- Notas de organización de un hito (ver routes.py): cada actualización se guarda como una fila
+-- nueva, la última es la que vale y las anteriores quedan como historial.
+CREATE TABLE IF NOT EXISTS org_notes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    landmark_id INTEGER NOT NULL REFERENCES landmarks(id) ON DELETE CASCADE,
+    text        TEXT NOT NULL,
+    at          TEXT NOT NULL                       -- ISO, cuando se escribió
+);
+CREATE INDEX IF NOT EXISTS idx_org_notes ON org_notes (landmark_id, id);
+
 -- Editing sessions (see audit.py): opened by the first change of a client, closed by inactivity.
 CREATE TABLE IF NOT EXISTS sessions (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -141,6 +151,7 @@ MIGRATIONS = [
     ("route_stops", "photo_title", "TEXT"),
     ("route_stops", "photo_page", "TEXT"),
     ("route_stops", "images_status", "TEXT NOT NULL DEFAULT 'pendiente'"),
+    ("landmarks", "org_status", "TEXT"),            # estado de organización de la visita
 ]
 
 

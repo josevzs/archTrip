@@ -11,6 +11,10 @@ api = Blueprint("api", __name__)
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 STATUSES = ("pendiente", "curado", "posible", "descartado")
+# Cómo va la gestión de la visita, aparte de si el hito está curado o no: se puede tener un
+# edificio decidido (curado) y la visita sin pedir, o al revés.
+ORG_STATES = ("confirmado", "contestar", "esperando", "guia", "sin_contacto", "problema",
+              "por_contactar", "propuesta")
 EDITABLE = ("name", "architect", "city", "address", "year", "notes",
             "url_archdaily", "url_av", "url_image1", "url_image2")
 
@@ -28,18 +32,25 @@ def _trip_or_404(db, trip_id):
     return t
 
 
-def _attach_images(db, landmarks):
+def _attach_extras(db, landmarks):
+    """Las fotos y las notas de organización de cada hito, en una consulta por tabla."""
     if not landmarks:
         return landmarks
     by_id = {lm["id"]: lm for lm in landmarks}
     for lm in landmarks:
         lm["images"] = []
+        lm["org_notes"] = []
     marks = ",".join("?" * len(by_id))
     for im in rows(db.execute(
             f"SELECT * FROM landmark_images WHERE landmark_id IN ({marks}) "
             "ORDER BY landmark_id, kind, position, id",
             tuple(by_id))):
         by_id[im["landmark_id"]]["images"].append(im)
+    # de la más reciente a la más antigua: la primera es la que está en vigor
+    for nt in rows(db.execute(
+            f"SELECT * FROM org_notes WHERE landmark_id IN ({marks}) ORDER BY landmark_id, id DESC",
+            tuple(by_id))):
+        by_id[nt["landmark_id"]]["org_notes"].append(nt)
     return landmarks
 
 
@@ -47,7 +58,7 @@ def _landmark_or_404(db, lm_id):
     lm = row(db.execute(LANDMARK_SELECT + " WHERE l.id = ?", (lm_id,)))
     if lm is None:
         abort(404, description="Hito no encontrado")
-    return _attach_images(db, [lm])[0]
+    return _attach_extras(db, [lm])[0]
 
 
 def _trip_days(db, trip_id):
@@ -68,7 +79,7 @@ def _trip_days(db, trip_id):
 def _trip_payload(db, trip):
     stops = rows(db.execute("SELECT * FROM route_stops WHERE trip_id = ? ORDER BY position",
                             (trip["id"],)))
-    landmarks = _attach_images(db, rows(db.execute(
+    landmarks = _attach_extras(db, rows(db.execute(
         LANDMARK_SELECT + " WHERE l.trip_id = ? ORDER BY l.sort_order, l.id", (trip["id"],))))
     return {"trip": trip, "stops": stops, "landmarks": landmarks, "days": _trip_days(db, trip["id"]),
             "pending": enrich.pending_counts(db, trip["id"])}
@@ -382,6 +393,15 @@ def patch_landmark(lm_id):
         if body["status"] != lm["status"]:
             journal.append(dict(action="status", field="status", old=lm["status"], new=body["status"]))
 
+    if "org_status" in body:
+        value = (body["org_status"] or "").strip() or None
+        if value is not None and value not in ORG_STATES:
+            abort(400, description="Estado de organización no válido")
+        sets.append("org_status = ?")
+        params.append(value)
+        if value != lm["org_status"]:
+            journal.append(dict(action="edit", field="org_status", old=lm["org_status"], new=value))
+
     for field in EDITABLE:
         if field in body:
             value = (body[field] or "").strip() if isinstance(body[field], str) else body[field]
@@ -430,6 +450,37 @@ def patch_landmark(lm_id):
             audit.log(db, trip_id=lm["trip_id"], landmark_id=lm_id, landmark_name=lm["name"], **entry)
         db.commit()
     return jsonify(_landmark_or_404(db, lm_id))
+
+
+@api.post("/landmarks/<int:lm_id>/notas")
+def add_org_note(lm_id):
+    """Una línea de actualización sobre cómo va la visita. No pisa a la anterior: se apila, y el
+    historial queda a la vista en la ficha y en el PDF de organización."""
+    db = get_db()
+    lm = _landmark_or_404(db, lm_id)
+    text = ((request.get_json(silent=True) or {}).get("text") or "").strip()
+    if not text:
+        abort(400, description="La nota no puede estar vacía")
+    at = audit.now_iso()
+    note_id = db.execute("INSERT INTO org_notes (landmark_id, text, at) VALUES (?, ?, ?)",
+                         (lm_id, text, at)).lastrowid
+    audit.log(db, "org_note", lm["trip_id"], lm_id, lm["name"], new=text,
+              snapshot={"id": note_id, "landmark_id": lm_id, "text": text, "at": at})
+    db.commit()
+    return jsonify(_landmark_or_404(db, lm_id)), 201
+
+
+@api.delete("/notas/<int:note_id>")
+def delete_org_note(note_id):
+    db = get_db()
+    note = row(db.execute("SELECT * FROM org_notes WHERE id = ?", (note_id,)))
+    if note is None:
+        abort(404, description="Nota no encontrada")
+    lm = _landmark_or_404(db, note["landmark_id"])
+    db.execute("DELETE FROM org_notes WHERE id = ?", (note_id,))
+    audit.log(db, "org_note_delete", lm["trip_id"], lm["id"], lm["name"], old=note["text"], snapshot=note)
+    db.commit()
+    return jsonify(_landmark_or_404(db, lm["id"]))
 
 
 @api.post("/landmarks/<int:lm_id>/images/web")
@@ -867,7 +918,7 @@ def discover_import(trip_id):
                   snapshot=added)
     db.commit()
     # los hitos enteros, para que la vista los pinte sin recargar el viaje (y sin mover el mapa)
-    rows_added = _attach_images(db, rows(db.execute(
+    rows_added = _attach_extras(db, rows(db.execute(
         LANDMARK_SELECT + f" WHERE l.id IN ({', '.join('?' * len(added))})", added))) if added else []
     return jsonify({"added": rows_added, "skipped": skipped,
                     "pending": enrich.pending_counts(db, trip_id)}), 201
@@ -905,6 +956,18 @@ def export_itinerary(trip_id):
     db = get_db()
     trip = _trip_or_404(db, trip_id)
     data, filename = export.itinerary_pdf(_trip_payload(db, trip), gallery="fotos" in request.args)
+    return send_file(io.BytesIO(data), mimetype="application/pdf",
+                     as_attachment=True, download_name=filename)
+
+
+@api.get("/trips/<int:trip_id>/export/organizacion")
+def export_organisation(trip_id):
+    """La misma estructura del itinerario pero para gestionar las visitas: sin fotos, con el
+    estado de organización de cada hito y todas sus notas con su fecha. Los otros dos PDF no
+    cambian."""
+    db = get_db()
+    trip = _trip_or_404(db, trip_id)
+    data, filename = export.organisation_pdf(_trip_payload(db, trip))
     return send_file(io.BytesIO(data), mimetype="application/pdf",
                      as_attachment=True, download_name=filename)
 

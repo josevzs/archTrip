@@ -266,6 +266,20 @@
                    background: var(--bg); cursor: pointer; white-space: nowrap; }
   .dayc li .flag.on { color: var(--warn); border-color: var(--warn); }
   .dayc li .tag { font-size: 11px; letter-spacing: .5px; }
+  /* gestión de la visita: el color de la fila lo pone el estado de organización */
+  .dayc li.org { border-left: 4px solid var(--org); padding-left: 6px; background: color-mix(in srgb, var(--org) 7%, transparent); }
+  .orgtag { font-size: 11px; letter-spacing: .5px; text-transform: uppercase; color: var(--org); }
+  .orgbox { width: 100%; margin-top: 6px; padding: 7px 9px; border: 1px solid var(--line); background: var(--soft); }
+  .orgbox .row { gap: 6px; }
+  .orgbox select, .orgbox input { font-family: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .orgbox select { max-width: 200px; }
+  .orgbox ul { list-style: none; margin: 7px 0 0; padding: 0; font-size: 12px; }
+  .orgbox ul li { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; border: 0; }
+  .orgbox ul li .when { color: var(--muted); white-space: nowrap; }
+  .orgbox ul li.old { color: var(--muted); }
+  .orglegend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; margin: 0 0 10px; }
+  .orglegend span { white-space: nowrap; }
+
   .picker { border-top: 1px solid var(--line); background: var(--soft); padding: 8px 10px; }
   .picker input { width: 100%; font-family: inherit; font-size: 13px; padding: 5px 7px; border: 1px solid var(--line); }
   .picker .hits { max-height: 230px; overflow: auto; margin-top: 6px; }
@@ -335,6 +349,18 @@
     pais: 'La fuente solo dice el país, así que no se puede medir: míralo a mano',
   };
   const COLORS = { pendiente: '#111', curado: '#2e7d4f', posible: '#b8860b', descartado: '#999' };
+  // Cómo va la gestión de la visita, aparte del curado. Mismos ocho y mismos colores que
+  // `ORG_TAG` en archtrip/export.py (el PDF de organización): si cambian aquí, cambian allí.
+  const ORG = {
+    confirmado: { label: 'Confirmado', color: '#2e7d4f' },
+    contestar: { label: 'Contestar', color: '#e07b00' },
+    esperando: { label: 'Esperando respuesta', color: '#c8a200' },
+    guia: { label: 'Para el guía local', color: '#7b4ea8' },
+    sin_contacto: { label: 'Sin contacto', color: '#777777' },
+    problema: { label: 'Problema', color: '#b3261e' },
+    por_contactar: { label: 'Por contactar', color: '#d1491f' },
+    propuesta: { label: 'Propuesta', color: '#4a90d9' },
+  };
   const LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
   const LEAFLET_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
   const CLUSTER_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js';
@@ -378,6 +404,7 @@
     discover: null,     // { horas, fuentes, candidatos, elegidos… } de la vista Descubrir
     mapPhotos: savedPhotos === '1',   // el mapa con las fotos sobre los puntos
     fishing: null,      // hito al que se le está buscando una foto en la web
+    orgOpen: {},        // hitos con la gestión desplegada en el itinerario
     hideRejected: savedHide === '1', skipRejected: savedSkip === '1',
     enrich: { running: false, remaining: 0, error: null },
     admin: { authed: null, sessions: [], open: null, changes: [], query: '', history: null, backups: [], busy: false, note: null },
@@ -496,6 +523,8 @@
     setImageKind: (id, imgId, kind) => call('PATCH', '/api/landmarks/' + id + '/images/' + imgId, { kind }),
     refreshImages: (id) => call('POST', '/api/landmarks/' + id + '/images/refresh'),
     webImage: (id) => call('POST', '/api/landmarks/' + id + '/images/web'),
+    addNote: (id, text) => call('POST', '/api/landmarks/' + id + '/notas', { text }),
+    deleteNote: (noteId) => call('DELETE', '/api/notas/' + noteId),
     enrichNext: (tripId) => call('POST', '/api/trips/' + tripId + '/enrich/next'),
     createDay: (tripId, body) => call('POST', '/api/trips/' + tripId + '/days', body || {}),
     patchDay: (id, fields) => call('PATCH', '/api/days/' + id, fields),
@@ -1007,11 +1036,48 @@
   // cómo se lee cada estado dentro de un itinerario ya montado
   const ITEM_TAG = { curado: 'fijo', posible: 'opcional', pendiente: 'sin curar', descartado: 'descartado' };
 
+  // La gestión de la visita de un hito: estado, una línea para ir contando cómo va, y el
+  // historial de lo que se fue contando. Se usa igual en el itinerario y en la ficha.
+  function orgBox(lm) {
+    const notes = lm.org_notes || [];
+    const opciones = ['<option value="">(sin estado)</option>'].concat(Object.keys(ORG).map((k) =>
+      '<option value="' + k + '"' + (lm.org_status === k ? ' selected' : '') + '>' + ORG[k].label + '</option>')).join('');
+    const historial = notes.length
+      ? '<ul>' + notes.map((nt, i) => '<li class="' + (i ? 'old' : '') + '"><span class="when">' + esc(shortStamp(nt.at)) + '</span>'
+        + '<span class="grow">' + esc(nt.text) + '</span>'
+        + (STANDALONE ? '' : '<button class="link small" data-action="org-note-del" data-note="' + nt.id + '" data-id="' + lm.id + '" title="Borrar esta actualización">✕</button>')
+        + '</li>').join('') + '</ul>'
+      : '<div class="muted small" style="margin-top:6px">Todavía no hay actualizaciones.</div>';
+    if (STANDALONE) {
+      return '<div class="orgbox">' + (lm.org_status ? '<b>' + esc(ORG[lm.org_status].label) + '</b>' : '<span class="muted">sin estado</span>') + historial + '</div>';
+    }
+    return '<div class="orgbox">'
+      + '<div class="row"><select data-org-status data-id="' + lm.id + '" title="Cómo va la gestión de esta visita">' + opciones + '</select>'
+      + '<input type="text" class="grow" data-org-note data-id="' + lm.id + '" placeholder="añadir una actualización (se guarda con la fecha)">'
+      + '<button data-action="org-note-add" data-id="' + lm.id + '">Añadir</button></div>'
+      + historial + '</div>';
+  }
+
+  function orgButton(lm) {
+    const notes = (lm.org_notes || []).length;
+    const open = !!state.orgOpen[lm.id];
+    return '<button class="link small" data-action="org-toggle" data-id="' + lm.id + '"'
+      + ' title="Estado de la gestión y el historial de actualizaciones">'
+      + (open ? '▾' : '▸') + ' gestión' + (notes ? ' (' + notes + ')' : '') + '</button>';
+  }
+
+  function shortStamp(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d)) return String(iso).slice(0, 10);
+    return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) + ' ' + d.toTimeString().slice(0, 5);
+  }
+
   function itemView(it, day, n) {
     const ro = STANDALONE;
     const time = ro ? '<span class="muted small" style="min-width:44px">' + esc(it.at_time || '') + '</span>'
       : '<input type="time" value="' + attr(it.at_time || '') + '" data-item-field="at_time" data-id="' + it.id + '" title="Hora (opcional)">';
-    let body, dot = '';
+    let body, dot = '', org = null;
     if (it.kind === 'nota') {
       body = ro ? '<div class="note" style="font-style:italic">' + esc(it.text) + '</div>'
         : '<textarea class="note" rows="1" data-item-field="text" data-id="' + it.id + '" placeholder="nota">' + esc(it.text) + '</textarea>';
@@ -1026,14 +1092,20 @@
           + '<div class="meta">' + bits
           + ' · <span class="tag" style="color:' + COLORS[lm.status] + '">' + (ITEM_TAG[lm.status] || '') + '</span>'
           + (it.needs_confirm ? ' · <span class="tag" style="color:var(--warn)">pendiente de confirmar</span>' : '')
-          + '</div>';
+          + (lm.org_status ? ' · <span class="orgtag" style="--org:' + ORG[lm.org_status].color + '">' + esc(ORG[lm.org_status].label) + '</span>' : '')
+          + ' · ' + orgButton(lm)
+          + '</div>'
+          + (state.orgOpen[lm.id] ? orgBox(lm) : '');
+        if (lm.org_status) org = lm.org_status;
       }
     }
     const flag = ro
       ? (it.needs_confirm ? '<span class="flag on" title="Falta permiso o confirmación">⏳</span>' : '')
       : '<button class="flag' + (it.needs_confirm ? ' on' : '') + '" data-action="item-confirm" data-id="' + it.id + '"'
         + ' title="' + attr(it.needs_confirm ? 'Ya está confirmado: quitar la marca' : 'Marcar como pendiente de permiso o confirmación') + '">⏳</button>';
-    return '<li data-item="' + it.id + '" data-day="' + day.id + '"' + (it.needs_confirm ? ' class="confirm"' : '') + (ro ? '' : ' draggable="true"') + '>'
+    const clase = [it.needs_confirm ? 'confirm' : '', org ? 'org' : ''].filter(Boolean).join(' ');
+    return '<li data-item="' + it.id + '" data-day="' + day.id + '"' + (clase ? ' class="' + clase + '"' : '')
+      + (org ? ' style="--org:' + ORG[org].color + '"' : '') + (ro ? '' : ' draggable="true"') + '>'
       + (ro ? '' : '<span class="grip" title="Arrastra para ordenar (también entre días)">⠿</span>')
       + time + dot + '<div class="body">' + body + '</div>' + flag
       + (ro ? '' : '<button class="link small" data-action="item-delete" data-id="' + it.id + '" title="Quitar de este día">✕</button>')
@@ -1291,12 +1363,15 @@
     const bar = STANDALONE ? ''
       : '<div class="itinbar"><button data-action="day-add">＋ Añadir día</button>'
         + '<a class="btn quiet" href="/api/trips/' + state.trip.id + '/export/itinerario" download title="Un PDF día a día, listo para imprimir o mandar">⬇ PDF día a día</a>'
+        + '<a class="btn quiet" href="/api/trips/' + state.trip.id + '/export/organizacion" download title="Sin fotos: el estado de cada gestión y el historial de actualizaciones, para llamar y dar seguimiento">⬇ PDF de organización</a>'
         + '<button class="quiet" data-action="pdf-fotos" title="El mismo itinerario con la foto de cada hito. La primera vez tarda: hay que descargar cada foto."'
         + (state.pdf ? ' disabled' : '') + '>⬇ PDF con fotos</button></div>'
         + pdfProgressView()
         + '<div class="muted small" style="margin:0 0 14px">Cada día lleva fecha, ciudad base y sus hitos con hora; arrastra ⠿ para ordenarlos o pasarlos a otro día. '
         + 'El punto de color dice cómo está curado cada hito (<span style="color:' + COLORS.curado + '">fijo</span>, '
-        + '<span style="color:' + COLORS.posible + '">opcional</span>…) y ⏳ lo marca como pendiente de permiso o confirmación.</div>';
+        + '<span style="color:' + COLORS.posible + '">opcional</span>…) y ⏳ lo marca como pendiente de permiso o confirmación. '
+        + 'El <b>color de la fila</b> es el estado de la gestión, que se pone desde <b>gestión</b> en cada hito.</div>'
+        + '<div class="orglegend">' + Object.keys(ORG).map((k) => '<span style="color:' + ORG[k].color + '">■ ' + ORG[k].label + '</span>').join('') + '</div>';
     if (!state.days.length) {
       return '<div class="itin">' + bar + '<div class="empty">'
         + (STANDALONE ? 'Este viaje no tiene itinerario.' : 'Todavía no hay días. Pulsa <b>Añadir día</b>: el primero toma la fecha de hoy y los siguientes van encadenando el día siguiente.')
@@ -1631,10 +1706,14 @@
       + (lm.notes ? '<div class="notes small">' + esc(lm.notes) + '</div>' : '')
       + '<div class="small" style="margin-top:10px"><button class="link" data-action="edit" data-id="' + lm.id + '">editar</button>'
       + ' <button class="link" data-action="add-image-form" data-id="' + lm.id + '">añadir foto o plano</button>'
+      + ' <button class="link" data-action="org-toggle" data-id="' + lm.id + '">'
+      + (state.orgOpen[lm.id] ? '▾' : '▸') + ' gestión de la visita'
+      + ((lm.org_notes || []).length ? ' (' + lm.org_notes.length + ')' : '') + '</button>'
       + (STANDALONE ? '' : ' <button class="link" data-action="refresh-images" data-id="' + lm.id + '">buscar fotos otra vez</button>')
       + (STANDALONE || photos.length ? '' : ' <button class="link" data-action="web-image" data-id="' + lm.id + '"'
         + ' title="Busca en la web por edificio y arquitecto (Google si hay clave, luego ArchDaily y Openverse) y pega la primera que encaje">'
         + (state.fishing === lm.id ? 'pescando…' : '🎣 pescar una foto de la web') + '</button>') + '</div>'
+      + (state.orgOpen[lm.id] ? orgBox(lm) : '')
       + (state.addingImage ? addImageView(lm) : '')
       + (state.editing === lm.id ? editView(lm) : '')
       + '<div class="keys">Teclas: <kbd>←</kbd> <kbd>→</kbd> hito anterior / siguiente · <kbd>↑</kbd> <kbd>↓</kbd> otra imagen · '
@@ -2243,6 +2322,32 @@
         patchCard(r.landmark); renderDetail();
       } catch (e) { state.fishing = null; fail(e); renderDetail(); }
     },
+    'org-toggle': (el) => {
+      const id = Number(el.dataset.id);
+      state.orgOpen[id] = !state.orgOpen[id];
+      if (state.view === 'itinerario') renderList();
+      if (state.detail != null) renderDetail();
+    },
+    'org-note-add': async (el) => {
+      const id = Number(el.dataset.id);
+      const input = document.querySelector('[data-org-note][data-id="' + id + '"]');
+      const text = input ? input.value.trim() : '';
+      if (!text) { if (input) input.focus(); return; }
+      try {
+        applyLandmark(await store.addNote(id, text));
+        state.orgOpen[id] = true;
+        if (state.view === 'itinerario') renderList(); else patchCard(state.landmarks.find((x) => x.id === id));
+        if (state.detail != null) renderDetail();
+      } catch (e) { fail(e); renderList(); }
+    },
+    'org-note-del': async (el) => {
+      const id = Number(el.dataset.id);
+      try {
+        applyLandmark(await store.deleteNote(Number(el.dataset.note)));
+        if (state.view === 'itinerario') renderList(); else patchCard(state.landmarks.find((x) => x.id === id));
+        if (state.detail != null) renderDetail();
+      } catch (e) { fail(e); renderList(); }
+    },
     'retry-enrich': () => { state.enrich.error = null; runEnrich(); },
     'save-copy': () => local.saveCopy(),
     'new-mode': (el) => { location.hash = '#/nuevo/' + el.dataset.mode; },
@@ -2280,6 +2385,27 @@
     if (!el || !actions[el.dataset.action]) return;
     e.preventDefault();
     actions[el.dataset.action](el);
+  });
+
+  // el estado de la gestión se guarda al elegirlo; la nota, con Enter
+  app.addEventListener('change', async (e) => {
+    const sel = e.target.closest('[data-org-status]');
+    if (!sel) return;
+    const id = Number(sel.dataset.id);
+    try {
+      applyLandmark(await store.patchLandmark(id, { org_status: sel.value }));
+      if (state.view === 'itinerario') renderList(); else patchCard(state.landmarks.find((x) => x.id === id));
+      if (state.detail != null) renderDetail();
+    } catch (err) { fail(err); renderList(); }
+  });
+
+  app.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const input = e.target.closest('[data-org-note]');
+    if (!input) return;
+    e.preventDefault();
+    const btn = document.querySelector('[data-action="org-note-add"][data-id="' + input.dataset.id + '"]');
+    if (btn) btn.click();
   });
 
   app.addEventListener('submit', async (e) => {

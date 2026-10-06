@@ -301,6 +301,20 @@ def revert_change(db, c):
             db.execute("DELETE FROM landmarks WHERE id = ?", (s["id"],))
         audit.log(db, "clear_landmarks", trip_id, snapshot=snaps, revert_of=c["id"])
         msg = f"{len(snaps)} hitos eliminados"
+    elif action == "org_note":
+        if not row(db.execute("SELECT 1 AS x FROM org_notes WHERE id = ?", (snap["id"],))):
+            return "la nota ya no existe"
+        db.execute("DELETE FROM org_notes WHERE id = ?", (snap["id"],))
+        audit.log(db, "org_note_delete", trip_id, lm_id, c["landmark_name"], old=snap["text"],
+                  snapshot=snap, revert_of=c["id"])
+    elif action == "org_note_delete":
+        if not lm:
+            return "el hito ya no existe"
+        new_id = _free_id(db, "org_notes", snap["id"])
+        db.execute("INSERT INTO org_notes (id, landmark_id, text, at) VALUES (?, ?, ?, ?)",
+                   (new_id, snap["landmark_id"], snap["text"], snap.get("at") or audit.now_iso()))
+        audit.log(db, "org_note", trip_id, lm_id, c["landmark_name"], new=snap["text"],
+                  snapshot=dict(snap, id=new_id), revert_of=c["id"])
     elif action == "image_add":
         im = row(db.execute("SELECT * FROM landmark_images WHERE id = ?", (snap["id"],))) if snap else None
         if not im:

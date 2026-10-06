@@ -308,11 +308,24 @@ def _latin1(text):
 STATUS_TAG = {"curado": ("FIJO", "#2e7d4f"), "posible": ("OPCIONAL", "#b8860b"),
               "pendiente": ("SIN CURAR", "#666666"), "descartado": ("DESCARTADO", "#b3261e")}
 CONFIRM_TAG = ("PENDIENTE DE CONFIRMAR", "#b3261e")
+# Cómo va la gestión de cada visita. Los mismos ocho de `routes.ORG_STATES` y los mismos colores
+# que la vista de itinerario (`ORG` en static/index.html): si se cambian aquí, cámbialos allí.
+ORG_TAG = {
+    "confirmado": ("CONFIRMADO", "#2e7d4f"),
+    "contestar": ("CONTESTAR", "#e07b00"),
+    "esperando": ("ESPERANDO RESPUESTA", "#c8a200"),
+    "guia": ("PARA EL GUÍA LOCAL", "#7b4ea8"),
+    "sin_contacto": ("SIN CONTACTO", "#777777"),
+    "problema": ("PROBLEMA", "#b3261e"),
+    "por_contactar": ("POR CONTACTAR", "#d1491f"),
+    "propuesta": ("PROPUESTA", "#4a90d9"),
+}
 
 
 def itinerary_rows(payload):
     """El itinerario listo para pintar (y fácil de comprobar en los tests). Cada elemento:
-    {'time','line','meta','status','confirm','photo'}"""
+    {'time','line','meta','status','confirm','photo'} y, para el PDF de organización,
+    {'org','org_notes'} (el de itinerario y el de galería los ignoran)."""
     days = payload.get("days") or []
     landmarks = {lm["id"]: lm for lm in payload["landmarks"]}
     stops = {s["id"]: s for s in payload["stops"]}
@@ -324,7 +337,8 @@ def itinerary_rows(payload):
         rows = []
         for it in day.get("items") or []:
             row = {"time": it.get("at_time") or "", "meta": "", "status": None,
-                   "confirm": bool(it.get("needs_confirm")), "photo": None}
+                   "confirm": bool(it.get("needs_confirm")), "photo": None,
+                   "org": None, "org_notes": []}
             if it["kind"] == "nota":
                 rows.append(dict(row, line=it.get("text") or ""))
                 continue
@@ -345,7 +359,8 @@ def itinerary_rows(payload):
                 bits.append(lm["notes"])
             photos = [im for im in lm.get("images", []) if im.get("kind") == "foto"]
             rows.append(dict(row, line=f"{lm['architect'].upper()} — {lm['name']}", meta=" · ".join(bits),
-                             status=lm.get("status"),
+                             status=lm.get("status"), org=lm.get("org_status"),
+                             org_notes=list(lm.get("org_notes") or []),
                              photo=(photos[0].get("thumb") if photos else lm.get("url_image1"))))
         out.append({"head": head,
                     "base": day.get("stop_city") or (stops.get(day.get("stop_id")) or {}).get("city") or "",
@@ -598,6 +613,141 @@ def itinerary_pdf(payload, gallery=False):
     doc.build(story, canvasmaker=_Numbered)
     suffix = "-fotos" if gallery else ""
     return buf.getvalue(), f"itinerario{suffix}-{slugify(trip['name'])}.pdf"
+
+
+def organisation_rows(payload):
+    """-> (días, sueltos). Los días con sus hitos (reaprovecha `itinerary_rows`) y, aparte, los
+    hitos que tienen gestión abierta pero todavía no están en ningún día: en un documento para
+    llamar por teléfono, esos son justamente los que no hay que perder de vista."""
+    days = itinerary_rows(payload)
+    en_dias = {it.get("landmark_id") for d in (payload.get("days") or []) for it in (d.get("items") or [])}
+    sueltos = [lm for lm in payload["landmarks"]
+               if lm["id"] not in en_dias and (lm.get("org_status") or lm.get("org_notes"))
+               and lm.get("status") != "descartado"]
+    sueltos.sort(key=lambda lm: (lm.get("city") or "", lm["name"]))
+    return days, sueltos
+
+
+def _no_urls(text):
+    """En un papel para llamar por teléfono, una dirección web larga solo estorba (las notas de
+    los hitos importados son «Importado de X» + el enlace)."""
+    return re.sub(r"\s*https?://\S+", "", text or "").strip(" ·")
+
+
+def _org_cell(org, notes, styles, clean):
+    """La columna de gestión: el estado y debajo las actualizaciones, de la última a la primera."""
+    out = []
+    if org:
+        label, colour = ORG_TAG.get(org, (org.upper(), "#666666"))
+        out.append(Paragraph(f'<font color="{colour}">■ {_esc(clean(label))}</font>', styles["tag"]))
+    for note in notes:
+        when = (note.get("at") or "")[:10]
+        out.append(Paragraph(_esc(clean(f"{when} · {note.get('text') or ''}")), styles["meta"]))
+    return out or [Paragraph("", styles["meta"])]
+
+
+def organisation_pdf(payload):
+    """-> (pdf_bytes, filename). Para organizar las visitas: sin fotos, con el estado de cada
+    gestión y todas las notas con su fecha."""
+    trip = payload["trip"]
+    font, unicode_ok = _mono_font()
+    clean = (lambda t: t) if unicode_ok else _latin1
+    styles = {
+        "title": ParagraphStyle("t", fontName=font, fontSize=15, leading=19, spaceAfter=2),
+        "sub": ParagraphStyle("s", fontName=font, fontSize=8.5, leading=12, textColor=colors.HexColor("#666666")),
+        "day": ParagraphStyle("d", fontName=font, fontSize=10.5, leading=14, spaceBefore=2, spaceAfter=1),
+        "base": ParagraphStyle("b", fontName=font, fontSize=8.5, leading=11, textColor=colors.HexColor("#666666")),
+        "note": ParagraphStyle("n", fontName=font, fontSize=8.5, leading=11.5, textColor=colors.HexColor("#333333"),
+                               backColor=colors.HexColor("#f4f4f4"), borderPadding=4, spaceBefore=3, spaceAfter=3),
+        "time": ParagraphStyle("h", fontName=font, fontSize=9, leading=12, textColor=colors.HexColor("#666666")),
+        "item": ParagraphStyle("i", fontName=font, fontSize=9, leading=12),
+        "meta": ParagraphStyle("m", fontName=font, fontSize=7.5, leading=10, textColor=colors.HexColor("#666666")),
+        "tag": ParagraphStyle("g", fontName=font, fontSize=7.5, leading=10),
+        "empty": ParagraphStyle("e", fontName=font, fontSize=8.5, leading=11, textColor=colors.HexColor("#999999")),
+    }
+    days, sueltos = organisation_rows(payload)
+    dated = [d["date"] for d in (payload.get("days") or []) if d.get("date")]
+    span = ""
+    if dated:
+        span = pretty_date(min(dated)) + (f" — {pretty_date(max(dated))}" if min(dated) != max(dated) else "")
+
+    usados = [r["org"] for day in days for r in day["items"] if r.get("org")]
+    usados += [lm.get("org_status") for lm in sueltos if lm.get("org_status")]
+    legend = [f'<font color="{ORG_TAG[k][1]}">■ {ORG_TAG[k][0].lower()}</font>'
+              for k in ORG_TAG if k in set(usados)]
+    story = [Paragraph(_esc(clean(trip["name"])).upper(), styles["title"]),
+             Paragraph(_esc(clean("Organización de las visitas" + (f" · {span}" if span else "")
+                                  + f" · {len(days)} días"))
+                       + (("<br/>" + " · ".join(legend)) if legend else ""), styles["sub"]),
+             Spacer(1, 6 * mm)]
+
+    def tabla(filas):
+        table = Table(filas, colWidths=[14 * mm, None, 52 * mm], hAlign="LEFT")
+        table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("LINEBELOW", (0, 0), (-1, -2), .4, colors.HexColor("#d8d8d8")),
+        ]))
+        return table
+
+    for day in days:
+        block = [HRFlowable(width="100%", thickness=1, color=colors.HexColor("#111111"), spaceAfter=4),
+                 Paragraph(_esc(clean(day["head"])).upper(), styles["day"])]
+        if day["base"]:
+            block.append(Paragraph(_esc(clean("Base: " + day["base"])), styles["base"]))
+        if day["notes"]:
+            block.append(Paragraph(_esc(clean(day["notes"])), styles["note"]))
+        if day["items"]:
+            data = []
+            for r in day["items"]:
+                cell = [Paragraph(_esc(clean(r["line"])), styles["item"])]
+                if r["meta"]:
+                    cell.append(Paragraph(_esc(clean(_no_urls(r["meta"]))), styles["meta"]))
+                marks = []
+                if r["status"]:
+                    marks.append(STATUS_TAG.get(r["status"], (r["status"], "#666666")))
+                if r["confirm"]:
+                    marks.append(CONFIRM_TAG)
+                if marks:
+                    cell.append(Paragraph(" · ".join(f'<font color="{col}">{_esc(clean(txt))}</font>'
+                                                     for txt, col in marks), styles["tag"]))
+                data.append([Paragraph(_esc(clean(r["time"])), styles["time"]), cell,
+                             _org_cell(r.get("org"), r.get("org_notes") or [], styles, clean)])
+            block.append(tabla(data))
+        else:
+            block.append(Paragraph(_esc(clean("sin nada planificado todavía")), styles["empty"]))
+        block.append(Spacer(1, 5 * mm))
+        story.append(KeepTogether(block) if len(day["items"]) <= 8 else block[0])
+        if len(day["items"]) > 8:
+            story.extend(block[1:])
+
+    if sueltos:
+        story += [HRFlowable(width="100%", thickness=1, color=colors.HexColor("#111111"), spaceAfter=4),
+                  Paragraph(_esc(clean("Gestiones sin día asignado")).upper(), styles["day"]),
+                  Paragraph(_esc(clean("Hitos con gestión empezada que todavía no están en ningún día")),
+                            styles["base"])]
+        data = []
+        for lm in sueltos:
+            cell = [Paragraph(_esc(clean(f"{(lm['architect'] or '').upper()} — {lm['name']}")), styles["item"])]
+            bits = [lm.get("city"), str(lm["year"]) if lm.get("year") else None]
+            cell.append(Paragraph(_esc(clean(" · ".join(b for b in bits if b))), styles["meta"]))
+            data.append([Paragraph("", styles["time"]), cell,
+                         _org_cell(lm.get("org_status"), lm.get("org_notes") or [], styles, clean)])
+        story.append(tabla(data))
+
+    if not days and not sueltos:
+        story.append(Paragraph(_esc(clean("Todavía no hay nada que organizar: añade días o marca el estado "
+                                          "de organización de algún hito.")), styles["empty"]))
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, title=f"Organización — {clean(trip['name'])}", author="",
+                            creator="archTrip", subject="", leftMargin=PAGE_MARGIN, rightMargin=PAGE_MARGIN,
+                            topMargin=PAGE_MARGIN, bottomMargin=20 * mm)
+    _Numbered._archtrip_font = font
+    _Numbered._archtrip_note = clean(f"Generado con el sistema archTrip el {today_long()}")
+    doc.build(story, canvasmaker=_Numbered)
+    return buf.getvalue(), f"organizacion-{slugify(trip['name'])}.pdf"
 
 
 def _itinerary_note(payload):
