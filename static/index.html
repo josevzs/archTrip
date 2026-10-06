@@ -277,7 +277,9 @@
   .orgbox ul li { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; border: 0; }
   .orgbox ul li .when { color: var(--muted); white-space: nowrap; }
   .orgbox ul li.old { color: var(--muted); }
-  .orglast { font-size: 12px; margin-top: 3px; }
+  /* el comentario se lee en el color de su gestión, oscurecido para que contraste con el fondo
+     teñido de la fila; la etiqueta del estado se queda con el color puro */
+  .orglast { font-size: 12px; margin-top: 3px; color: color-mix(in srgb, var(--org, #555) 72%, #000); }
   .orglast .when { color: var(--muted); margin-right: 6px; white-space: nowrap; }
   .orglegend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; margin: 0 0 10px; }
   .orglegend span { white-space: nowrap; }
@@ -1729,7 +1731,7 @@
         + ' title="Busca en la web por edificio y arquitecto (Google si hay clave, luego ArchDaily y Openverse) y pega la primera que encaje">'
         + (state.fishing === lm.id ? 'pescando…' : '🎣 pescar una foto de la web') + '</button>') + '</div>'
       + (lm.org_status || (lm.org_notes || []).length
-        ? '<div class="small" style="margin-top:6px">'
+        ? '<div class="small" style="margin-top:6px' + (lm.org_status ? ';--org:' + ORG[lm.org_status].color : '') + '">'
           + (lm.org_status ? '<span class="orgtag" style="--org:' + ORG[lm.org_status].color + '">' + esc(ORG[lm.org_status].label) + '</span>' : '')
           + orgLast(lm) + '</div>' : '')
       + (state.orgOpen[lm.id] ? orgBox(lm) : '')
