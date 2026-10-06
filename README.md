@@ -113,6 +113,15 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
      curado), *opcional* (ámbar, posible), *sin curar*— y lleva un botón **⏳** para marcarla como
      **pendiente de permiso o confirmación** (visitas con reserva, permisos de acceso…). La línea
      marcada se resalta y lo dice en claro, también en los PDF.
+   - **Cómo va la gestión de cada visita** (distinto de si el hito está curado): cada hito tiene un
+     desplegable **gestión** con ocho estados —*confirmado, contestar, esperando respuesta, para el
+     guía local, sin contacto, problema, por contactar, propuesta*— que **pintan la fila del
+     itinerario con su color**, y con su leyenda debajo de la barra de botones. Un edificio puede
+     estar decidido y la visita sin pedir, o al revés.
+   - En ese mismo desplegable hay una línea para **ir contando cómo va**: «llamado, piden correo»,
+     «confirmado para las 10:00». Cada actualización se guarda **con su fecha y no pisa a la
+     anterior**: debajo queda el historial completo, de la más reciente a la primera. El mismo
+     desplegable está en la ficha de cada hito.
    - Quitar una línea (✕) no borra el hito del viaje, solo lo saca de ese día; borrar un día
      tampoco borra sus hitos.
    - Las fechas y las horas se guardan solas al terminar de escribirlas: el día no se recoloca
@@ -159,6 +168,9 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
      tiempo en coche desde la base, las notas, la etiqueta de curado (*fijo* / *opcional*) y el
      aviso de *pendiente de confirmar*, con su leyenda arriba. No llevan la barra de créditos de
      la aplicación: solo un pie discreto de «generado con el sistema archTrip el …» y la paginación.
+   - **Organización (PDF)**: el mismo día a día pero para gestionar las visitas: sin fotos, con el
+     estado de cada gestión y todas sus notas con la fecha, y al final una lista de los hitos que
+     tienen gestión empezada y todavía no están en ningún día. Los dos PDF de arriba no cambian.
    - **HTML**: un único archivo `viaje-<nombre>.html` que se abre con doble clic en cualquier
      ordenador, sin servidor. Guarda los cambios en el navegador y con **Guardar copia**
      genera un nuevo HTML con el estado actual para compartir.
