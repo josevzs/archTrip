@@ -90,7 +90,7 @@ def test_upload_and_enrich(client, route_xlsx, landmarks_xlsx, fake_geo):
     r = upload(client, f"/api/trips/{tid}/route", route_xlsx)
     assert r.status_code == 200 and r.get_json() == {"added": 2, "errors": []}
     r = upload(client, f"/api/trips/{tid}/landmarks", landmarks_xlsx)
-    assert r.get_json() == {"added": 3, "updated": 0, "errors": []}
+    assert r.get_json() == {"added": 3, "updated": 0, "errors": [], "walks": 0}
 
     data = client.get(f"/api/trips/{tid}").get_json()
     # 2 stops + 2 landmarks to geocode (Serralves has coords) + 1 drive for Serralves once a stop is located

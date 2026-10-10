@@ -12,6 +12,7 @@ ROUTE_COLUMNS = [
     ("Orden", "position", True, 8, 1),
     ("Ciudad", "city", True, 24, "Oporto"),
     ("País", "country", False, 16, "Portugal"),
+    ("Foto (URL)", "photo_url", False, 40, ""),
     ("Notas", "notes", False, 40, "Noche 1 y 2"),
 ]
 
@@ -29,6 +30,10 @@ LANDMARK_COLUMNS = [
     ("URL Imagen 2", "url_image2", False, 36, ""),
     ("Notas", "notes", False, 40, "A · ejemplo de nota"),
     ("Estado", "status", False, 12, ""),
+    # un paseo es un hito más: «paseo» en Tipo y, en Recorrido, la dirección de un .geojson
+    # (o el GeoJSON pegado). Su punto pasa a ser la entrada al recorrido.
+    ("Tipo", "kind", False, 10, ""),
+    ("Recorrido", "track", False, 44, ""),
 ]
 STATUSES = ("pendiente", "curado", "posible", "descartado")
 
@@ -38,6 +43,7 @@ ROUTE_ALIASES = {
     "city": {"ciudad", "localidad", "pueblo", "ciudad/pueblo", "lugar"},
     "country": {"pais"},
     "notes": {"notas", "nota", "comentarios", "observaciones"},
+    "photo_url": {"foto", "foto (url)", "url foto", "imagen", "url imagen", "foto de la ciudad"},
 }
 
 LANDMARK_ALIASES = {
@@ -54,6 +60,8 @@ LANDMARK_ALIASES = {
     "url_image2": {"url imagen 2", "imagen 2", "foto 2", "url foto 2"},
     "notes": {"notas", "nota", "comentarios", "observaciones"},
     "status": {"estado", "status", "curado"},
+    "kind": {"tipo", "clase", "kind"},
+    "track": {"recorrido", "ruta", "paseo", "geojson", "track", "trazado"},
 }
 
 ROUTE_INSTRUCTIONS = [
@@ -201,6 +209,7 @@ def parse_route(file_obj):
             continue
         pos = _cell_float(rec.get("position"))
         stops.append({
+            "photo_url": _cell_str(rec.get("photo_url")) or None,
             "position": int(pos) if pos is not None else None,
             "city": city,
             "country": _cell_str(rec.get("country")) or None,
@@ -267,6 +276,8 @@ def parse_landmarks(file_obj):
             "url_image2": _cell_str(rec.get("url_image2")) or None,
             "notes": _cell_str(rec.get("notes")) or None,
             "status": status,
+            "kind": "paseo" if normalise(rec.get("kind")) in ("paseo", "ruta", "recorrido", "walk") else "hito",
+            "track": _cell_str(rec.get("track")) or None,
             "name_key": key,
         })
     return items, errors

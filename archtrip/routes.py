@@ -1,10 +1,11 @@
 import io
+import json
 import re
 from pathlib import Path
 
 from flask import Blueprint, abort, current_app, jsonify, request, send_file
 
-from . import access, audit, discover, enrich, excel, export, images, links, prompt, uploads
+from . import access, audit, discover, enrich, excel, export, images, links, prompt, uploads, walks
 from .db import get_db, row, rows
 
 api = Blueprint("api", __name__)
@@ -253,15 +254,49 @@ def upload_route(trip_id):
     audit.log(db, "route_upload", trip_id, new=f"{len(stops)} paradas",
               snapshot=rows(db.execute("SELECT * FROM route_stops WHERE trip_id = ? ORDER BY position", (trip_id,))))
     db.execute("DELETE FROM route_stops WHERE trip_id = ?", (trip_id,))
+    # la foto de la parada se pone aquí, al crear la ruta, y es la que se queda: si la trae el
+    # archivo no se vuelve a buscar nada (`images_status = 'ok'`)
     db.executemany(
-        "INSERT INTO route_stops (trip_id, position, city, country, notes) VALUES (?, ?, ?, ?, ?)",
-        [(trip_id, s["position"], s["city"], s["country"], s["notes"]) for s in stops],
+        "INSERT INTO route_stops (trip_id, position, city, country, notes, photo_url, photo_thumb, "
+        "photo_title, images_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [(trip_id, s["position"], s["city"], s["country"], s["notes"], s.get("photo_url"),
+          s.get("photo_url"), s["city"] if s.get("photo_url") else None,
+          "ok" if s.get("photo_url") else "pendiente") for s in stops],
     )
     # the route changed, so every drive time must be recomputed
     db.execute("UPDATE landmarks SET nearest_stop_id = NULL, drive_minutes = NULL, drive_km = NULL, "
                "drive_source = NULL WHERE trip_id = ?", (trip_id,))
     db.commit()
     return jsonify({"added": len(stops), "errors": errors})
+
+
+def _split_walks(items, errors):
+    """Saca de la plantilla las filas marcadas como paseo y les carga su recorrido. Lo que no se
+    pueda leer vuelve a la lista normal: mejor un hito sin recorrido que perder la fila."""
+    normales, paseos = [], []
+    for it in items:
+        if it.get("kind") != "paseo" or not it.get("track"):
+            if it.get("kind") == "paseo":
+                errors.append(f"«{it['name']}»: marcado como paseo pero sin recorrido; entra como hito")
+            normales.append(it)
+            continue
+        try:
+            leidos, fallos = walks.parse(walks.load(it["track"]), default_name=it["name"])
+        except Exception as exc:
+            errors.append(f"«{it['name']}»: no se ha podido leer el recorrido ({str(exc)[:80]})")
+            normales.append(it)
+            continue
+        errors.extend(f"«{it['name']}»: {f}" for f in fallos)
+        if not leidos:
+            normales.append(it)
+            continue
+        w = leidos[0]
+        # lo que diga la plantilla manda; del recorrido se toma la geometría y la entrada
+        paseos.append({**w, "name": it["name"], "architect": it["architect"], "city": it["city"] or w["city"],
+                       "notes": it.get("notes") or w["notes"], "status": it.get("status") or w["status"],
+                       "lat": it.get("lat") if it.get("lat") is not None else w["lat"],
+                       "lon": it.get("lon") if it.get("lon") is not None else w["lon"]})
+    return normales, paseos
 
 
 @api.post("/trips/<int:trip_id>/landmarks")
@@ -272,7 +307,9 @@ def upload_landmarks(trip_id):
     if not items:
         return jsonify({"error": "No se ha podido leer ningún hito", "errors": errors}), 400
 
-    added = updated = 0
+    # las filas marcadas como paseo traen su recorrido y se guardan con su geometría
+    items, paseos = _split_walks(items, errors)
+    added, updated = _save_walks(db, trip_id, paseos) if paseos else (0, 0)
     for order, it in enumerate(items):
         existing = row(db.execute("SELECT * FROM landmarks WHERE trip_id = ? AND name_key = ?",
                                   (trip_id, it["name_key"])))
@@ -321,7 +358,65 @@ def upload_landmarks(trip_id):
                           snapshot={k: existing[k] for k in audit.UPLOAD_FIELDS})
             updated += 1
     db.commit()
-    return jsonify({"added": added, "updated": updated, "errors": errors})
+    return jsonify({"added": added, "updated": updated, "errors": errors,
+                    "walks": len(paseos)})
+
+
+def _save_walks(db, trip_id, paseos):
+    """Mete o actualiza paseos conservando lo que ya se hubiera curado, igual que la plantilla de
+    hitos: el emparejamiento es por nombre + tema, así que volver a subir el archivo actualiza el
+    recorrido sin perder el estado, las fotos ni el día al que esté asignado."""
+    added = updated = 0
+    order = row(db.execute("SELECT COALESCE(MAX(sort_order), 0) AS m FROM landmarks WHERE trip_id = ?",
+                           (trip_id,)))["m"]
+    for w in paseos:
+        key = excel.landmark_key(w["name"], w["architect"])
+        geometry = json.dumps(w["geometry"], ensure_ascii=False)
+        existing = row(db.execute("SELECT * FROM landmarks WHERE trip_id = ? AND name_key = ?", (trip_id, key)))
+        if existing:
+            db.execute("UPDATE landmarks SET kind = 'paseo', geometry = ?, length_m = ?, lat = ?, lon = ?, "
+                       "geocode_status = 'manual', drive_source = NULL, city = COALESCE(NULLIF(?, ''), city), "
+                       "notes = COALESCE(?, notes) WHERE id = ?",
+                       (geometry, w["length_m"], w["lat"], w["lon"], w["city"], w["notes"], existing["id"]))
+            audit.log(db, "upload_update", trip_id, existing["id"], existing["name"], new="paseo",
+                      snapshot={k: existing[k] for k in audit.UPLOAD_FIELDS})
+            updated += 1
+            continue
+        order += 1
+        cur = db.execute(
+            "INSERT INTO landmarks (trip_id, name, architect, city, notes, lat, lon, geocode_status, "
+            "status, sort_order, name_key, kind, geometry, length_m, links_status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?, 'paseo', ?, ?, 'ok')",
+            (trip_id, w["name"], w["architect"], w["city"], w["notes"], w["lat"], w["lon"],
+             w["status"] or "pendiente", order, key, geometry, w["length_m"]))
+        # un paseo no tiene ficha en ArchDaily ni en Arquitectura Viva: no se buscan enlaces
+        audit.log(db, "create_landmark", trip_id, cur.lastrowid, w["name"], new="paseo")
+        added += 1
+    return added, updated
+
+
+@api.post("/trips/<int:trip_id>/paseos")
+def upload_walks(trip_id):
+    """Sube un .geojson de recorridos (el que sale de QGIS tal cual). Cada uno entra como un hito
+    más, con su geometría y con la entrada del recorrido como punto."""
+    db = get_db()
+    _trip_or_404(db, trip_id)
+    f = request.files.get("file")
+    if f is None or not f.filename:
+        abort(400, description="No se ha enviado ningún archivo")
+    if not f.filename.lower().endswith((".geojson", ".json")):
+        abort(400, description="El archivo debe ser .geojson")
+    try:
+        data = json.loads(f.read().decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        abort(400, description=f"No se ha podido leer el GeoJSON: {str(exc)[:120]}")
+    paseos, errors = walks.parse(data)
+    if not paseos:
+        return jsonify({"error": "No se ha podido leer ningún recorrido", "errors": errors}), 400
+    added, updated = _save_walks(db, trip_id, paseos)
+    db.commit()
+    return jsonify({"added": added, "updated": updated, "errors": errors,
+                    "pending": enrich.pending_counts(db, trip_id)})
 
 
 @api.delete("/trips/<int:trip_id>/landmarks")

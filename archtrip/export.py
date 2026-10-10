@@ -347,7 +347,12 @@ def itinerary_rows(payload):
                 rows.append(dict(row, line="hito eliminado"))
                 continue
             bits = [lm["city"]]
-            if lm.get("year"):
+            if lm.get("kind") == "paseo":
+                # en un paseo, lo que importa es cuánto se anda
+                largo = lm.get("length_m") or 0
+                bits.append("paseo" + (f" · {largo / 1000:.1f} km".replace(".", ",") if largo >= 1000
+                                       else f" · {round(largo)} m" if largo else ""))
+            elif lm.get("year"):
                 bits.append(str(lm["year"]))
             if lm.get("address"):
                 bits.append(lm["address"])

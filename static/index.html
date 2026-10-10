@@ -155,6 +155,9 @@
   .leaflet-popup-content .actions { margin-top: 6px; gap: 5px; }
   .leaflet-popup-content .actions button { padding: 3px 7px; font-size: 12px; }
   .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 13px; }
+  /* un paseo se distingue de un edificio por la forma del marcador: cuadrado contra círculo */
+  .lmicon.walk { border-radius: 3px; }
+  .phico.walk { border-radius: 3px; outline: 1px dashed rgba(255,255,255,.7); outline-offset: -3px; }
   .lmicon { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #111; background: #fff;
             display: flex; align-items: center; justify-content: center; box-sizing: border-box;
             font: bold 10px "Courier New", Courier, monospace; color: #fff; letter-spacing: -.5px;
@@ -393,10 +396,10 @@
   };
 
   const app = document.getElementById('app');
-  let savedView = 'fotos', savedHide = '1', savedSkip = '1', savedPhotos = '0';
+  let savedView = 'fotos', savedHide = '1', savedSkip = '1', savedPhotos = '1';
   try {
     savedView = localStorage.getItem('archtrip:view') || 'fotos';
-    savedPhotos = localStorage.getItem('archtrip:mapphotos') || '0';
+    savedPhotos = localStorage.getItem('archtrip:mapphotos') || '1';   // de serie, encendidas
     savedHide = localStorage.getItem('archtrip:hideRejected') || '1';
     savedSkip = localStorage.getItem('archtrip:skipRejected') || '1';
   } catch (e) { /* no storage */ }
@@ -520,7 +523,8 @@
     upload: (kind, tripId, file) => {
       const fd = new FormData();
       fd.append('file', file);
-      return call('POST', '/api/trips/' + tripId + '/' + (kind === 'route' ? 'route' : 'landmarks'), fd, true);
+      const ruta = kind === 'route' ? 'route' : kind === 'paseos' ? 'paseos' : 'landmarks';
+      return call('POST', '/api/trips/' + tripId + '/' + ruta, fd, true);
     },
     clearLandmarks: (tripId) => call('DELETE', '/api/trips/' + tripId + '/landmarks'),
     patchLandmark: (id, fields) => call('PATCH', '/api/landmarks/' + id, fields),
@@ -692,7 +696,9 @@
         + '<a class="btn quiet" href="/api/templates/prompt.md?download=1" title="Instrucciones para que una IA (ChatGPT, Claude, Gemini…) rellene las dos plantillas y las precure">⬇ Prompt para IA</a></div>'
         + '<div class="group"><button data-action="pick-file" data-kind="route">⬆ Subir ruta</button>'
         + '<button data-action="pick-file" data-kind="landmarks">⬆ Subir hitos</button>'
-        + '<input type="file" accept=".xlsx" data-upload="route" hidden><input type="file" accept=".xlsx" data-upload="landmarks" hidden></div>'
+        + '<button data-action="pick-file" data-kind="paseos" title="Un .geojson con recorridos (el que sale de QGIS): cada uno entra como un hito más, con su recorrido y con su entrada como punto">⬆ Subir paseos</button>'
+        + '<input type="file" accept=".xlsx" data-upload="route" hidden><input type="file" accept=".xlsx" data-upload="landmarks" hidden>'
+        + '<input type="file" accept=".geojson,.json" data-upload="paseos" hidden></div>'
         + '<div class="group"><a class="btn quiet" href="/api/trips/' + t.id + '/export/itinerario" download>⬇ Itinerario (PDF)</a>'
         + '<a class="btn quiet" href="/api/trips/' + t.id + '/export/html" download>Exportar HTML</a>'
         + '<a class="btn quiet" href="/api/trips/' + t.id + '/export/obsidian" download>Exportar Obsidian</a></div>'
@@ -718,12 +724,10 @@
       const pic = s.photo_thumb
         ? '<img src="' + attr(s.photo_thumb) + '" alt="" loading="lazy" onerror="this.parentNode.innerHTML=\'<div class=nopic>sin foto</div>\'">'
         : '<div class="nopic">' + (s.images_status === 'pendiente' && !STANDALONE ? '⏳ buscando foto…' : 'sin foto') + '</div>';
-      const link = s.photo_page ? '<a href="' + attr(s.photo_page) + '" target="_blank" rel="noopener" title="Ver el archivo en Wikimedia Commons">origen</a>' : '';
-      const tools = STANDALONE ? '' : '<div class="tools"><button class="link" data-action="stop-photo" data-id="' + s.id + '" title="Pegar la dirección de otra foto">cambiar</button>'
-        + (s.photo_url ? '<button class="link" data-action="stop-photo-refresh" data-id="' + s.id + '" title="Buscar otra vez en Wikidata y Commons">buscar</button>' : '')
-        + link + '</div>';
+      // la foto de la parada viene en la plantilla de la ruta (columna «Foto (URL)») y se queda
+      // así: mientras no haya edición de rutas en la interfaz, los botones solo hacían ruido
       return '<div class="stop card2"><span class="pic">' + pic + '</span>'
-        + '<div class="cap">' + s.position + '. <b>' + esc(s.city) + '</b> ' + glyph + '</div>' + tools + '</div>';
+        + '<div class="cap">' + s.position + '. <b>' + esc(s.city) + '</b> ' + glyph + '</div></div>';
     }).join('<span class="arrow">→</span>') + '</div>';
   }
 
@@ -813,6 +817,11 @@
     });
     return Array.from(map.values()).sort((a, b) => b.items.length - a.items.length || a.name.localeCompare(b.name))
       .map((g) => { g.items.sort((a, b) => (a.nearest_stop_position || 9999) - (b.nearest_stop_position || 9999) || (a.year || '').localeCompare(b.year || '')); return g; });
+  }
+
+  // un paseo dice su longitud donde un edificio diría su año
+  function walkTag(lm) {
+    return isWalk(lm) ? 'paseo' + (walkLength(lm) ? ' · ' + walkLength(lm) : '') : '';
   }
 
   function driveText(lm) {
@@ -982,7 +991,7 @@
     return '<div class="card ' + lm.status + '" id="card-' + lm.id + '">'
       + '<a class="pic" href="#" data-action="open" data-id="' + lm.id + '">' + pic + (pc ? '<span class="badge">' + pc + '</span>' : '') + '</a>'
       + '<div class="cbody"><div class="arch">' + esc(lm.architect) + '</div><div class="name">' + esc(lm.name) + '</div>'
-      + '<div class="meta">' + [esc(lm.city), driveText(lm)].filter(Boolean).join(' · ') + '</div>'
+      + '<div class="meta">' + [esc(lm.city), walkTag(lm), driveText(lm)].filter(Boolean).join(' · ') + '</div>'
       + '<div class="actions">' + statusButtons(lm, trashButton(lm)) + '</div></div></div>';
   }
   function trashButton(lm) {
@@ -1104,7 +1113,7 @@
       const lm = state.landmarks.find((x) => x.id === it.landmark_id);
       if (!lm) body = '<span class="muted">hito eliminado</span>';
       else {
-        const bits = [esc(lm.city), lm.year ? esc(lm.year) : null, driveText(lm)].filter(Boolean).join(' · ');
+        const bits = [esc(lm.city), walkTag(lm) || (lm.year ? esc(lm.year) : null), driveText(lm)].filter(Boolean).join(' · ');
         dot = '<i class="dot" style="background:' + COLORS[lm.status] + '" title="' + attr(ITEM_TAG[lm.status] || lm.status) + '"></i>';
         body = '<div class="arch">' + esc(lm.architect) + '</div>'
           + '<div>' + (STANDALONE ? esc(lm.name) : '<a href="#/viaje/' + state.trip.id + '/hito/' + lm.id + '">' + esc(lm.name) + '</a>') + '</div>'
@@ -1543,12 +1552,25 @@
 
   // Un círculo con el color del estado: hueco si el hito no está en ningún día, y relleno con
   // el número del día si ya está colocado.
+  const isWalk = (lm) => lm && lm.kind === 'paseo';
+
+  function walkGeometry(lm) {
+    if (!isWalk(lm) || !lm.geometry) return null;
+    try { return typeof lm.geometry === 'string' ? JSON.parse(lm.geometry) : lm.geometry; } catch (e) { return null; }
+  }
+
+  // «2,4 km» se lee mejor que «2402 m» para decidir si un paseo cabe en una tarde
+  function walkLength(lm) {
+    if (!isWalk(lm) || !lm.length_m) return '';
+    return lm.length_m >= 1000 ? (lm.length_m / 1000).toFixed(1).replace('.', ',') + ' km' : Math.round(lm.length_m) + ' m';
+  }
+
   function landmarkIcon(L, lm, offRoute, placed) {
     if (state.mapPhotos) {
       const main = mainPhoto(lm), day = (placed || assignedDays()).get(lm.id);
       if (main && main.thumb) {
         return L.divIcon({ className: '', iconSize: [46, 34], iconAnchor: [23, 17],
-          html: '<div class="phico" style="border-color:' + (COLORS[lm.status] || '#111') + ';background-image:url(\''
+          html: '<div class="phico' + (lm.kind === 'paseo' ? ' walk' : '') + '" style="border-color:' + (COLORS[lm.status] || '#111') + ';background-image:url(\''
             + main.thumb.replace(/'/g, '%27') + '\')">' + (day ? '<b>' + day + '</b>' : '') + '</div>' });
       }
     }
@@ -1556,7 +1578,8 @@
     const day = (placed || assignedDays()).get(lm.id);
     const fill = offRoute ? '#b3261e' : (day ? color : '#fff');
     return L.divIcon({ className: '', iconSize: [20, 20], iconAnchor: [10, 10],
-      html: '<div class="lmicon" style="border-color:' + color + ';background:' + fill + '">' + (day || '') + '</div>' });
+      html: '<div class="lmicon' + (isWalk(lm) ? ' walk' : '') + '" style="border-color:' + color
+        + ';background:' + fill + '">' + (day || '') + '</div>' });
   }
 
   function updateMarkers(L) {
@@ -1591,6 +1614,16 @@
     const km = (a, b) => { const r = Math.PI / 180, x = Math.sin((b[0] - a[0]) * r / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin((b[1] - a[1]) * r / 2) ** 2; return 12742 * Math.asin(Math.sqrt(x)); };
     let far = 0;
     const placed = assignedDays();
+    // el recorrido de los paseos, debajo de los marcadores: el punto es la entrada y la línea
+    // enseña por dónde va; se pinta con el color de su curado
+    shown.filter(isWalk).forEach((lm) => {
+      const geo = walkGeometry(lm);
+      if (!geo) return;
+      const linea = L.geoJSON(geo, { style: { color: COLORS[lm.status] || '#111', weight: 4, opacity: .75 } });
+      linea.bindTooltip(lm.architect + ' — ' + lm.name + (walkLength(lm) ? ' · ' + walkLength(lm) : ''), { sticky: true });
+      linea.on('click', () => { if (mapState.markers[lm.id]) mapState.markers[lm.id].openPopup(); });
+      linea.addTo(layer);
+    });
     shown.forEach((lm) => {
       const p = [lm.lat, lm.lon];
       const offRoute = routePts.length > 0 && routePts.every((s) => km(s, p) > 150);
@@ -2009,9 +2042,10 @@
     renderList();
     try {
       const r = await store.upload(kind, state.trip.id, file);
-      const text = kind === 'route'
-        ? r.added + ' paradas cargadas.'
-        : r.added + ' hitos nuevos, ' + r.updated + ' actualizados.';
+      const text = kind === 'route' ? r.added + ' paradas cargadas.'
+        : kind === 'paseos' ? r.added + ' paseos nuevos, ' + r.updated + ' actualizados.'
+        : r.added + ' hitos nuevos, ' + r.updated + ' actualizados.'
+          + (r.walks ? ' (' + r.walks + ' son paseos con recorrido)' : '');
       say(text + (r.errors && r.errors.length ? ' Filas con problemas:' : ''), r.errors && r.errors.length ? 'err' : 'ok', r.errors);
       await loadTrip(state.trip.id, true);
     } catch (e) { fail(e); renderList(); }
@@ -2267,21 +2301,8 @@
       if (!confirm('¿Sustituir TODOS los datos actuales por la copia ' + name + '?\nEl estado actual se guarda antes como pre-restore-….db, por si hay que volver.')) return;
       adminDo(async () => { const r = await admin.post('/backups/' + encodeURIComponent(name) + '/restore'); return 'Restaurada ' + r.restored + ' (estado previo guardado en ' + r.saved_before + ')'; });
     },
-    'stop-photo': async (el) => {
-      const stop = state.stops.find((x) => x.id === Number(el.dataset.id));
-      if (!stop) return;
-      const url = prompt('Dirección de la foto para ' + stop.city + ' (clic derecho en cualquier imagen de la web → copiar dirección de la imagen).\nDéjalo vacío para quitarla:', stop.photo_url || '');
-      if (url === null) return;
-      try { applyStop(await store.patchStop(stop.id, { photo_url: url.trim() })); } catch (e) { fail(e); }
-      renderList();
-    },
-    'stop-photo-refresh': async (el) => {
-      const stop = state.stops.find((x) => x.id === Number(el.dataset.id));
-      if (!stop) return;
-      try { applyStop(await store.patchStop(stop.id, { refresh: true })); } catch (e) { fail(e); }
-      renderList();
-      runEnrich();
-    },
+    // la foto de una parada ya no se edita desde aquí: viene en la plantilla de la ruta. El
+    // endpoint sigue existiendo (PATCH /api/stops/<id>) para cuando haya edición de rutas.
     'toggle-private': async (el) => {
       const t = state.trips.find((x) => x.id === Number(el.dataset.id));
       if (!t) return;

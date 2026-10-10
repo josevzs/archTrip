@@ -47,11 +47,19 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
      Solo **Edificio, Arquitecto y Ciudad** son obligatorios; la columna opcional **Estado**
      (`posible` / `descartado`) se aplica solo a hitos nuevos o todavía pendientes — nunca pisa
      el curado hecho en la herramienta. Cada plantilla lleva una hoja "Instrucciones".
-3. **Subir** ambos archivos. La app localiza automáticamente cada parada y cada hito en el
+3. **Paseos** (opcional): hay cosas que no son un edificio sino un recorrido —una calle, un
+   barrio que se ve andando, un sendero—. Se suben con **⬆ Subir paseos**, en un `.geojson` (el que
+   exporta QGIS vale tal cual) o poniendo `paseo` en la columna *Tipo* de la plantilla de hitos y
+   la dirección del `.geojson` en *Recorrido*. Un paseo **es un hito más**: se cura, se mete en un
+   día, puede llevar foto y sale en los PDF igual que un edificio; la diferencia es que en el mapa
+   se dibuja su recorrido y que **su punto es la entrada**, por donde se empieza a andar (en el
+   mapa, los paseos son cuadrados y los edificios, círculos). El prompt para IA explica cómo
+   encargarlos.
+4. **Subir** ambos archivos. La app localiza automáticamente cada parada y cada hito en el
    mapa (OpenStreetMap/Nominatim), calcula el tiempo en coche desde la parada más cercana
    (OSRM) y **busca fotos y planos** de cada edificio (Wikidata + Wikimedia Commons). Se ve
    una barra "Localizando…" / "Buscando fotos…"; si se cierra la pestaña, continúa la próxima vez.
-4. **Curar** en la vista que convenga (los **descartados se ocultan por defecto** en todas; la casilla
+5. **Curar** en la vista que convenga (los **descartados se ocultan por defecto** en todas; la casilla
    "ocultar descartados" junto a las pestañas los vuelve a mostrar, y en la ficha "saltar descartados"
    hace que las flechas y las teclas no pasen por ellos):
    - **Fotos** (por defecto): rejilla de tarjetas con la foto principal, agrupadas por parada. En las
@@ -85,7 +93,7 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
    buscado— para corregirlos de una sentada con *editar* o *Volver a localizar*. En el mapa,
    filtrar, buscar u ocultar descartados **no cambia el encuadre**: solo se repintan los puntos,
    y si algo queda fuera de pantalla la leyenda lo dice y **ajustar vista** vuelve a encuadrar.
-5. **Itinerario** (la quinta pestaña): monta el viaje día a día.
+6. **Itinerario** (la quinta pestaña): monta el viaje día a día.
    - **Añadir día** crea el día siguiente al último (el primero toma la fecha de hoy). Cada día
      lleva **fecha** de calendario, un **título** opcional («Llegada», «Nara → Kioto»), la
      **ciudad base** — una parada de la ruta, es decir dónde se duerme — y una **nota del día**
@@ -126,7 +134,7 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
      tampoco borra sus hitos.
    - Las fechas y las horas se guardan solas al terminar de escribirlas: el día no se recoloca
      hasta que se sale del campo, así se puede teclear un año entero sin que la lista salte.
-6. **Descubrir qué más hay cerca** (pestaña *Descubrir*): propone obras que caen dentro del
+7. **Descubrir qué más hay cerca** (pestaña *Descubrir*): propone obras que caen dentro del
    radio de acción del viaje, para no depender solo de lo que uno ya tenía apuntado.
    - Se define con dos números: la **envolvente** —cuántas horas en coche se está dispuesto a
      alejarse de una parada o de un hito ya curado (2 h por defecto, unos 108 km)— y el
@@ -157,7 +165,7 @@ Escucha en `127.0.0.1:8000`; la base de datos queda en `./data/` fuera del conte
      candidatos como rombos (rellenos si coinciden varias fuentes), con un botón para meterlos
      sin salir del mapa —y al meterlos el mapa **se queda donde estaba**, sin perder el encuadre—.
      Se apaga con la casilla de la leyenda.
-7. **Exportar**:
+8. **Exportar**:
    - **Itinerario (PDF)**, en dos versiones: **día a día** (compacto, para imprimir o mandar a
      los alumnos) y **con fotos** (el mismo, con la foto de cada hito al lado, todas al mismo
      ancho y sin deformar: las verticales salen más altas). El de fotos

@@ -152,6 +152,12 @@ MIGRATIONS = [
     ("route_stops", "photo_page", "TEXT"),
     ("route_stops", "images_status", "TEXT NOT NULL DEFAULT 'pendiente'"),
     ("landmarks", "org_status", "TEXT"),            # estado de organización de la visita
+    # un elemento puede ser un edificio (un punto) o un paseo (un recorrido): mismo hito, misma
+    # curación, mismo itinerario; lo único distinto es que el paseo guarda su geometría y su
+    # punto es la entrada al recorrido
+    ("landmarks", "kind", "TEXT NOT NULL DEFAULT 'hito'"),
+    ("landmarks", "geometry", "TEXT"),              # GeoJSON (LineString | MultiLineString)
+    ("landmarks", "length_m", "REAL"),
 ]
 
 

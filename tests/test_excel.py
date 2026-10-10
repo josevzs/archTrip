@@ -7,7 +7,8 @@ from conftest import make_xlsx
 def test_route_template_roundtrip():
     stops, errors = excel.parse_route(io.BytesIO(excel.route_template()))
     assert errors == []
-    assert stops == [{"position": 1, "city": "Oporto", "country": "Portugal", "notes": "Noche 1 y 2"}]
+    assert stops == [{"position": 1, "city": "Oporto", "country": "Portugal", "notes": "Noche 1 y 2",
+                      "photo_url": None}]
 
 
 def test_landmarks_template_roundtrip():
@@ -18,6 +19,7 @@ def test_landmarks_template_roundtrip():
     assert (lm["name"], lm["architect"], lm["city"]) == ("Casa da Música", "Rem Koolhaas / OMA", "Oporto")
     assert lm["year"] == "2005" and lm["lat"] is None and lm["status"] is None
     assert lm["name_key"] == "casa da musica|rem koolhaas / oma"
+    assert lm["kind"] == "hito" and lm["track"] is None      # la plantilla trae un edificio
 
 
 def test_status_column():
