@@ -88,6 +88,8 @@ def test_the_published_pdf_leaves_out_the_same(client):
 
 # ------------------------------------------------------------ publicar desde la administración
 
+import os
+
 import pytest  # noqa: E402
 
 from archtrip import publish  # noqa: E402
@@ -203,6 +205,7 @@ def test_the_project_name_comes_from_the_trip():
     assert publish.project_name("¿?") == "viaje"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="el wrangler de mentira es un script #!/bin/sh: solo corre en el servidor (Linux), que es donde se publica")
 def test_deploy_calls_wrangler_with_the_files(tmp_path, monkeypatch):
     fake = tmp_path / "wrangler"
     seen = tmp_path / "seen.txt"
