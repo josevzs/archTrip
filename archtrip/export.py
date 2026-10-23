@@ -2,6 +2,7 @@
 Bases vault folder as ZIP."""
 import base64
 import hashlib
+import html as htmlmod
 import io
 import json
 import os
@@ -46,13 +47,19 @@ def safe_filename(text, fallback="sin-nombre"):
 
 # ------------------------------------------------------------ standalone
 
-def standalone_html(payload):
+def standalone_html(payload, alumnos=False, pdfs=False):
     """-> (html, filename). Embeds the trip data into static/index.html so the
     file works from file:// with no server; the page persists edits in
-    localStorage and can re-export itself ("Guardar copia")."""
+    localStorage and can re-export itself ("Guardar copia").
+
+    `alumnos=True` is the read-only copy that scripts/publicar.sh puts on the web: trimmed by
+    `student_payload`, with no editing at all, and with a proper title and link preview.
+    `pdfs=True` adds buttons to the PDFs that the script publishes next to it."""
     template = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    data = dict(payload)
+    data = student_payload(payload) if alumnos else dict(payload)
     data["exported_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if alumnos:
+        data["readonly"] = {"pdfs": [{"file": f, "label": label} for f, label in PUBLISHED_PDFS] if pdfs else []}
     _inline_uploads(data["landmarks"])
     # never let the JSON close the script tag early
     blob = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
@@ -60,7 +67,59 @@ def standalone_html(payload):
     if DATA_MARKER not in template:
         raise RuntimeError("static/index.html no contiene el marcador ARCHTRIP_DATA")
     html = template.replace(DATA_MARKER, script, 1)
-    return html, f"viaje-{slugify(payload['trip']['name'])}.html"
+    if alumnos:
+        html = html.replace("<title>archTrip</title>", _public_head(data), 1)
+    return html, f"viaje-{slugify(payload['trip']['name'])}{'-alumnos' if alumnos else ''}.html"
+
+
+# ------------------------------------------------------- copia para alumnos
+
+# Lo que ve un alumno: lo decidido (curado = «fijo») y lo que puede caer (posible = «opcional»),
+# más cualquier hito que ya esté metido en un día. Lo descartado y lo que aún no se ha mirado,
+# fuera, y también toda la gestión de las visitas (estado y notas): eso es cocina.
+PUBLIC_STATUSES = ("curado", "posible")
+# Los PDF que scripts/publicar.sh sube junto a la página, con el nombre que les da allí.
+PUBLISHED_PDFS = (("itinerario.pdf", "⬇ Itinerario (PDF)"), ("itinerario-fotos.pdf", "⬇ Itinerario con fotos (PDF)"))
+
+
+def student_payload(payload):
+    """El viaje recortado a lo que se publica. Se quita aquí y no solo en pantalla: lo que va en
+    el archivo lo puede leer cualquiera con «ver código fuente»."""
+    in_days = {it.get("landmark_id") for d in payload.get("days") or [] for it in d.get("items") or []
+               if it["kind"] == "hito"}
+    landmarks = []
+    for lm in payload["landmarks"]:
+        if lm["status"] in PUBLIC_STATUSES or (lm["id"] in in_days and lm["status"] != "descartado"):
+            landmarks.append({k: v for k, v in lm.items() if k not in ("org_status", "org_notes", "name_key")})
+    keep = {lm["id"] for lm in landmarks}
+    days = [dict(d, items=[it for it in d.get("items") or [] if it["kind"] != "hito" or it.get("landmark_id") in keep])
+            for d in payload.get("days") or []]
+    trip = {k: v for k, v in payload["trip"].items() if k != "private"}
+    return {"trip": trip, "stops": payload["stops"], "landmarks": landmarks, "days": days}
+
+
+def _public_head(data):
+    """<title> con el nombre del viaje, la tarjeta que enseñan WhatsApp o Telegram al pegar el
+    enlace, y que los buscadores no lo indexen. Tiene que ir en el HTML tal cual: quien genera
+    la vista previa no ejecuta el JavaScript de la página."""
+    name = data["trip"]["name"]
+    stops = " → ".join(s["city"] for s in data["stops"])
+    n = len(data["days"])
+    desc = " · ".join(x for x in (f"{n} días" if n > 1 else "", stops,
+                                  f"{len(data['landmarks'])} obras de arquitectura") if x)
+    esc = htmlmod.escape                     # comillas incluidas: casi todo va en atributos
+    image = next((im["thumb"] for lm in data["landmarks"] if lm["status"] == "curado"
+                  for im in lm.get("images", []) if im.get("kind") == "foto"
+                  and str(im.get("thumb") or "").startswith("https://")), None)
+    tags = [f"<title>{esc(name)}</title>",
+            '<meta name="robots" content="noindex, nofollow">',
+            f'<meta name="description" content="{esc(desc)}">',
+            '<meta property="og:type" content="website">',
+            f'<meta property="og:title" content="{esc(name)}">',
+            f'<meta property="og:description" content="{esc(desc)}">']
+    if image:
+        tags.append(f'<meta property="og:image" content="{esc(image)}">')
+    return "\n".join(tags)
 
 
 def _inline_uploads(landmarks):

@@ -322,7 +322,8 @@
     .dmain { flex-direction: column; }
     .dside { flex-basis: auto; max-width: none; }
     .dviewer .stage { min-height: 220px; max-height: 45vh; }
-    .views { margin-left: 0; }
+    .views { margin-left: 0; flex-wrap: wrap; }      /* en un móvil las cinco pestañas no caben en una línea */
+    .views button { padding: 6px 9px; }
   }
 </style>
 </head>
@@ -341,13 +342,18 @@
 
   // ------------------------------------------------------------ setup
   const STANDALONE = !!window.__ARCHTRIP__;
+  // La copia de consulta que se publica para los alumnos (scripts/publicar.sh): solo se mira,
+  // y el servidor ya ha quitado lo descartado, lo que está sin mirar y la gestión de las visitas.
+  const READONLY = STANDALONE && !!window.__ARCHTRIP__.readonly;
   // Captured before anything renders so "Guardar copia" can re-emit this file
   // with fresh data and no runtime DOM inside it.
   const PRISTINE_HTML = STANDALONE ? '<!DOCTYPE html>\n' + document.documentElement.outerHTML : null;
 
-  const FILTERS = ['todos', 'pendiente', 'curado', 'posible', 'descartado', 'impreciso'];
-  const FILTER_LABEL = { todos: 'Todos', pendiente: 'Pendientes', curado: 'Curados', posible: 'Posibles', descartado: 'Descartados',
-                         impreciso: 'Sin localizar' };
+  const FILTERS = READONLY ? ['todos', 'curado', 'posible'] : ['todos', 'pendiente', 'curado', 'posible', 'descartado', 'impreciso'];
+  const FILTER_LABEL = READONLY
+    ? { todos: 'Todos', pendiente: 'Por decidir', curado: 'Fijos', posible: 'Opcionales' }
+    : { todos: 'Todos', pendiente: 'Pendientes', curado: 'Curados', posible: 'Posibles', descartado: 'Descartados',
+        impreciso: 'Sin localizar' };
   // 'impreciso' no es un estado de curado: son los hitos cuyo punto en el mapa no es de fiar
   // (se usó el centro de la ciudad, no se encontró nada, o ni siquiera se ha buscado todavía).
   const VIEWS = { fotos: 'Fotos', arquitectos: 'Arquitectos', mapa: 'Mapa', lista: 'Lista', itinerario: 'Itinerario', descubrir: 'Descubrir' };
@@ -685,7 +691,13 @@
       + '</div>';
 
     let toolbar;
-    if (STANDALONE) {
+    if (READONLY) {
+      const pdfs = window.__ARCHTRIP__.readonly.pdfs || [];
+      toolbar = '<div class="banner small">Versión de consulta del viaje, actualizada el ' + esc(shortStamp(window.__ARCHTRIP__.exported_at)) + '. '
+        + 'Los edificios <span style="color:' + COLORS.curado + '">fijos</span> están en el plan; los '
+        + '<span style="color:' + COLORS.posible + '">opcionales</span>, si da tiempo.</div>'
+        + (pdfs.length ? '<div class="toolbar"><div class="group">' + pdfs.map((f) => '<a class="btn quiet" href="' + attr(f.file) + '" download>' + esc(f.label) + '</a>').join('') + '</div></div>' : '');
+    } else if (STANDALONE) {
       toolbar = '<div class="banner small">Copia autónoma del viaje. Los cambios se guardan en este navegador; '
         + 'usa <b>Guardar copia</b> para llevártelos a otro sitio o compartirlos.</div>'
         + '<div class="toolbar"><div class="group"><button data-action="save-copy">Guardar copia</button></div></div>';
@@ -719,7 +731,7 @@
       return '<div class="muted">' + (STANDALONE ? 'Sin ruta.' : 'Sube la ruta (Excel) para calcular tiempos en coche desde cada parada.') + '</div>';
     }
     return '<div class="route">' + state.stops.map((s) => {
-      const glyph = s.geocode_status === 'ok' ? '<span class="ok">✓</span>'
+      const glyph = READONLY ? '' : s.geocode_status === 'ok' ? '<span class="ok">✓</span>'
         : s.geocode_status === 'fallido' ? '<span class="warn" title="No se ha podido localizar">✗</span>' : '<span class="muted">⏳</span>';
       const pic = s.photo_thumb
         ? '<img src="' + attr(s.photo_thumb) + '" alt="" loading="lazy" onerror="this.parentNode.innerHTML=\'<div class=nopic>sin foto</div>\'">'
@@ -765,7 +777,7 @@
     return FILTERS.map((f) => '<button class="' + (state.filter === f ? 'on' : '') + '" data-action="filter" data-filter="' + f + '"'
       + (f === 'impreciso' ? ' title="Hitos situados solo por el centro de su ciudad, no encontrados, o todavía sin buscar: el punto del mapa y el tiempo en coche no son de fiar"' : '')
       + '>' + FILTER_LABEL[f] + ' ' + c[f] + '</button>').join('')
-      + '<label class="check" title="Los descartados solo se ven en su pestaña"><input type="checkbox" data-toggle="hideRejected" ' + (state.hideRejected ? 'checked' : '') + '> ocultar descartados</label>';
+      + (READONLY ? '' : '<label class="check" title="Los descartados solo se ven en su pestaña"><input type="checkbox" data-toggle="hideRejected" ' + (state.hideRejected ? 'checked' : '') + '> ocultar descartados</label>');
   }
 
   function viewsView() {
@@ -828,7 +840,8 @@
     if (lm.drive_minutes != null && lm.nearest_stop_city) {
       if (lm.geocode_status === 'ciudad') {
         // only the city centre was found: the time is city-to-city, not to the building
-        const hint = '<span class="warn" title="No se ha encontrado el edificio en el mapa; usa editar para poner dirección o coordenadas">sin localizar con precisión</span>';
+        const hint = READONLY ? '<span class="muted">ubicación aproximada</span>'
+          : '<span class="warn" title="No se ha encontrado el edificio en el mapa; usa editar para poner dirección o coordenadas">sin localizar con precisión</span>';
         if (lm.drive_minutes < 2) return hint + ' <span class="muted">· está en ' + esc(lm.city) + '</span>';
         return hint + ' · ⏱ <span class="approx" title="Tiempo hasta el centro de ' + attr(lm.city) + ', no hasta el edificio">≈</span> '
           + minutesText(lm.drive_minutes) + ' en coche desde ' + esc(lm.nearest_stop_city) + ' hasta ' + esc(lm.city);
@@ -839,6 +852,7 @@
         + minutesText(lm.drive_minutes) + ' en coche desde ' + esc(lm.nearest_stop_city)
         + (lm.drive_km != null ? ' (' + Math.round(lm.drive_km) + ' km)' : '');
     }
+    if (lm.geocode_status === 'fallido' && READONLY) return '';
     if (lm.geocode_status === 'fallido') return '<span class="warn">⚠ no se ha podido localizar</span> <span class="small">— usa <i>editar</i> para poner dirección o coordenadas</span>';
     if (lm.lat == null) return STANDALONE ? '' : '<span class="muted">⏳ localizando…</span>';
     if (!state.stops.length) return '<span class="muted">sin ruta para calcular el tiempo</span>';
@@ -846,6 +860,7 @@
   }
 
   function statusButtons(lm, extra) {
+    if (READONLY) return extra || '';
     const btn = (s, label) => '<button class="' + (lm.status === s ? 'on ' + s : 'quiet') + '" data-action="set-status" data-id="' + lm.id + '" data-status="' + s + '">' + label + '</button>';
     return btn('curado', '✓ Curar') + btn('posible', '? Posible') + btn('descartado', '✗ Descartar') + dayButton(lm) + (extra || '');
   }
@@ -957,9 +972,9 @@
       + '<div class="meta">' + meta + '</div>'
       + '<div class="links small">' + linksView(lm)
       + '<button class="link" data-action="open" data-id="' + lm.id + '">' + (pc ? 'ficha (' + pc + ')' : 'ficha') + '</button>'
-      + '<button class="link" data-action="edit" data-id="' + lm.id + '">editar</button></div>'
+      + (READONLY ? '' : '<button class="link" data-action="edit" data-id="' + lm.id + '">editar</button>') + '</div>'
       + (lm.notes ? '<div class="notes small">' + esc(lm.notes) + '</div>' : '')
-      + '<div class="actions">' + statusButtons(lm, '<button class="link danger" data-action="delete-landmark" data-id="' + lm.id + '" title="Quitar el hito del viaje definitivamente">eliminar del todo</button>') + '</div>'
+      + (READONLY ? '' : '<div class="actions">' + statusButtons(lm, '<button class="link danger" data-action="delete-landmark" data-id="' + lm.id + '" title="Quitar el hito del viaje definitivamente">eliminar del todo</button>') + '</div>')
       + (state.editing === lm.id ? editView(lm) : '')
       + '</div>' + thumb + '</div>';
   }
@@ -992,10 +1007,10 @@
       + '<a class="pic" href="#" data-action="open" data-id="' + lm.id + '">' + pic + (pc ? '<span class="badge">' + pc + '</span>' : '') + '</a>'
       + '<div class="cbody"><div class="arch">' + esc(lm.architect) + '</div><div class="name">' + esc(lm.name) + '</div>'
       + '<div class="meta">' + [esc(lm.city), walkTag(lm), driveText(lm)].filter(Boolean).join(' · ') + '</div>'
-      + '<div class="actions">' + statusButtons(lm, trashButton(lm)) + '</div></div></div>';
+      + (READONLY ? '' : '<div class="actions">' + statusButtons(lm, trashButton(lm)) + '</div>') + '</div></div>';
   }
   function trashButton(lm) {
-    return lm.status === 'descartado'
+    return !READONLY && lm.status === 'descartado'
       ? '<button class="trash" data-action="delete-landmark" data-id="' + lm.id + '" title="Eliminar del viaje definitivamente">🗑</button>' : '';
   }
 
@@ -1051,7 +1066,7 @@
   function dayLabel(day, n) { return 'Día ' + n + (day.date ? ' · ' + prettyDate(day.date) : '') + (day.title ? ' · ' + day.title : ''); }
 
   // cómo se lee cada estado dentro de un itinerario ya montado
-  const ITEM_TAG = { curado: 'fijo', posible: 'opcional', pendiente: 'sin curar', descartado: 'descartado' };
+  const ITEM_TAG = { curado: 'fijo', posible: 'opcional', pendiente: READONLY ? 'por decidir' : 'sin curar', descartado: 'descartado' };
 
   // La gestión de la visita de un hito: estado, una línea para ir contando cómo va, y el
   // historial de lo que se fue contando. Se usa igual en el itinerario y en la ficha.
@@ -1120,12 +1135,12 @@
           + '<div class="meta">' + bits
           + ' · <span class="tag" style="color:' + COLORS[lm.status] + '">' + (ITEM_TAG[lm.status] || '') + '</span>'
           + (it.needs_confirm ? ' · <span class="tag" style="color:var(--warn)">pendiente de confirmar</span>' : '')
-          + (lm.org_status ? ' · <span class="orgtag" style="--org:' + ORG[lm.org_status].color + '">' + esc(ORG[lm.org_status].label) + '</span>' : '')
-          + ' · ' + orgButton(lm)
-          + '</div>'
-          + orgLast(lm)
-          + (state.orgOpen[lm.id] ? orgBox(lm) : '');
-        if (lm.org_status) org = lm.org_status;
+          + (READONLY ? '</div>' : (lm.org_status ? ' · <span class="orgtag" style="--org:' + ORG[lm.org_status].color + '">' + esc(ORG[lm.org_status].label) + '</span>' : '')
+            + ' · ' + orgButton(lm)
+            + '</div>'
+            + orgLast(lm)
+            + (state.orgOpen[lm.id] ? orgBox(lm) : ''));
+        if (lm.org_status && !READONLY) org = lm.org_status;
       }
     }
     const flag = ro
@@ -1633,7 +1648,7 @@
                               offRoute: offRoute, riseOnHover: true, thumb: main ? main.thumb : null,
                               day: placed.get(lm.id) || null });
       mapState.markers[lm.id] = m;
-      m.bindTooltip(lm.architect + ' — ' + lm.name + (offRoute ? ' (¿mal localizado?)' : ''));
+      m.bindTooltip(lm.architect + ' — ' + lm.name + (offRoute && !READONLY ? ' (¿mal localizado?)' : ''));
       m.bindPopup(() => popupView(state.landmarks.find((x) => x.id === lm.id) || lm), { maxWidth: 280 });
       mapState.cluster.addLayer(m);
       if (offRoute) far++; else pts.push(p);
@@ -1647,7 +1662,8 @@
     const hidden = items.length - shown.length;
     const legend = '<label class="check" title="Enseña la foto de cada hito sobre su punto; las que se juntan salen en grupo con un +N">'
       + '<input type="checkbox" data-action="map-photos"' + (state.mapPhotos ? ' checked' : '') + '> fotos en el mapa</label>'
-      + Object.keys(COLORS).map((s) => '<span><i style="background:' + COLORS[s] + '"></i>' + FILTER_LABEL[s] + '</span>').join('')
+      + Object.keys(COLORS).filter((s) => !READONLY || state.landmarks.some((lm) => lm.status === s))
+        .map((s) => '<span><i style="background:' + COLORS[s] + '"></i>' + FILTER_LABEL[s] + '</span>').join('')
       + (state.days.length ? '<span title="El número es el día del itinerario al que está asignado"><i class="hollow"></i>sin día<i class="filled" style="margin-left:10px"></i>día 1, 2, 3…</span>' : '');
     const off = shown.length && pts.length ? shown.filter((lm) => !mapState.map.getBounds().contains([lm.lat, lm.lon])).length : 0;
     document.getElementById('map-note').innerHTML = legend
@@ -1655,7 +1671,7 @@
       + '<span class="muted">' + shown.length + ' hitos en el mapa'
       + (off ? ' · ' + off + ' fuera del encuadre actual' : '')
       + (hidden ? ' · ' + hidden + ' sin localizar con precisión no se muestran (ver Lista)' : '')
-      + (far ? ' · <span class="warn">' + far + ' muy lejos de la ruta (relleno rojo): probablemente mal localizados, corrígelos con editar</span>' : '') + '</span>'
+      + (far && !READONLY ? ' · <span class="warn">' + far + ' muy lejos de la ruta (relleno rojo): probablemente mal localizados, corrígelos con editar</span>' : '') + '</span>'
       + (state.discover && state.discover.candidates ? '<span><i class="hollow" style="border-color:#2a6ca8"></i>'
         + '<label class="check" title="La envolvente, el corredor y los candidatos de la búsqueda de Descubrir">'
         + '<input type="checkbox" data-action="disc-zone-map"' + (state.discover.showZone ? ' checked' : '') + '> '
@@ -1739,16 +1755,16 @@
     if (state.detailImg >= all.length) state.detailImg = 0;
     const cur = all[state.detailImg];
     const thumbs = (arr, offset) => arr.map((p, i) => '<img src="' + attr(p.thumb) + '" alt="" class="' + (offset + i === state.detailImg ? 'on' : '') + '" data-action="show-img" data-i="' + (offset + i) + '"'
-      + (p.id != null ? ' draggable="true" data-img="' + p.id + '" title="Arrastra para reordenar"' : '') + ' onerror="this.style.display=\'none\'">').join('');
+      + (p.id != null && !READONLY ? ' draggable="true" data-img="' + p.id + '" title="Arrastra para reordenar"' : '') + ' onerror="this.style.display=\'none\'">').join('');
     const stage = cur ? '<img src="' + attr(cur.url) + '" alt="" onerror="this.onerror=null;this.src=\'' + attr(cur.thumb) + '\'">'
       : '<div class="muted">' + (lm.images_status === 'pendiente' && !STANDALONE ? '⏳ buscando fotos y planos…' : 'sin fotos — ') + (cur ? '' : '<a href="' + attr(imagesUrl(lm)) + '" target="_blank" rel="noopener">buscar imágenes</a>') + '</div>';
     const caption = cur ? esc(cur.title || '') + (cur.page_url && !cur.manual && cur.source !== 'manual' ? ' · <a href="' + attr(cur.page_url) + '" target="_blank" rel="noopener">ver en Commons</a>' : '')
-      + (cur.id == null ? '' : ' · <button class="link" data-action="set-kind" data-id="' + lm.id + '" data-img="' + cur.id + '" data-kind="' + (cur.kind === 'foto' ? 'plano' : 'foto') + '">' + (cur.kind === 'foto' ? 'es un plano' : 'es una foto') + '</button>'
+      + (cur.id == null || READONLY ? '' : ' · <button class="link" data-action="set-kind" data-id="' + lm.id + '" data-img="' + cur.id + '" data-kind="' + (cur.kind === 'foto' ? 'plano' : 'foto') + '">' + (cur.kind === 'foto' ? 'es un plano' : 'es una foto') + '</button>'
         + ' · <button class="link" data-action="delete-image" data-id="' + lm.id + '" data-img="' + cur.id + '">quitar esta imagen</button>') : '';
     box.innerHTML = '<div class="detail" id="detail">'
       + '<div class="dhead"><span class="muted">' + (idx + 1) + ' / ' + list.length + '</span>'
       + '<span class="arch" style="font-weight:bold;text-transform:uppercase">' + esc(lm.architect) + '</span><span>' + esc(lm.name) + '</span>'
-      + '<div class="dnav"><label class="check" title="Al pasar con las flechas o C/P/X no se muestran los descartados"><input type="checkbox" data-toggle="skipRejected" ' + (state.skipRejected ? 'checked' : '') + '> saltar descartados</label>'
+      + '<div class="dnav">' + (READONLY ? '' : '<label class="check" title="Al pasar con las flechas o C/P/X no se muestran los descartados"><input type="checkbox" data-toggle="skipRejected" ' + (state.skipRejected ? 'checked' : '') + '> saltar descartados</label>')
       + '<button class="quiet" data-action="detail-prev" ' + (idx <= 0 ? 'disabled' : '') + '>‹ anterior</button>'
       + '<button class="quiet" data-action="detail-next" ' + (idx >= list.length - 1 ? 'disabled' : '') + '>siguiente ›</button>'
       + (STANDALONE ? '' : '<button class="quiet" data-action="copy-link" data-id="' + lm.id + '" title="Copiar el enlace directo a esta ficha">enlace</button>')
@@ -1759,13 +1775,14 @@
       + '</div>'
       + '<div class="dside"><div class="arch">' + esc(lm.architect) + '</div><div class="name">' + esc(lm.name) + '</div>'
       + '<div class="muted" style="margin-top:4px">' + [esc(lm.city), lm.year ? esc(lm.year) : null, driveText(lm)].filter(Boolean).join(' · ') + '</div>'
-      + '<div class="actions">' + statusButtons(lm, trashButton(lm)) + '</div>'
+      + (READONLY ? '' : '<div class="actions">' + statusButtons(lm, trashButton(lm)) + '</div>')
       + '<div class="bigbtns"><a class="btn" href="' + attr(googleUrl(lm)) + '" target="_blank" rel="noopener">Buscar en Google</a>'
       + '<a class="btn" href="' + attr(imagesUrl(lm)) + '" target="_blank" rel="noopener">Buscar en Google Imágenes</a></div>'
       + '<div class="links small">' + linksView(lm) + '</div>'
       + itineraryBox(lm)
       + (lm.notes ? '<div class="notes small">' + esc(lm.notes) + '</div>' : '')
-      + '<div class="small" style="margin-top:10px"><button class="link" data-action="edit" data-id="' + lm.id + '">editar</button>'
+      + (READONLY ? '<div class="keys">Teclas: <kbd>←</kbd> <kbd>→</kbd> obra anterior / siguiente · <kbd>↑</kbd> <kbd>↓</kbd> otra imagen · <kbd>Esc</kbd> cerrar</div></div></div></div>' : '')
+      + (READONLY ? '' : '<div class="small" style="margin-top:10px"><button class="link" data-action="edit" data-id="' + lm.id + '">editar</button>'
       + ' <button class="link" data-action="add-image-form" data-id="' + lm.id + '">añadir foto o plano</button>'
       + ' <button class="link" data-action="org-toggle" data-id="' + lm.id + '">'
       + (state.orgOpen[lm.id] ? '▾' : '▸')
@@ -1786,7 +1803,7 @@
       + '<kbd>C</kbd> curar · <kbd>P</kbd> posible · <kbd>X</kbd> descartar (y pasa al siguiente) · <kbd>Supr</kbd> eliminar del todo · <kbd>Esc</kbd> cerrar · arrastra las miniaturas para reordenarlas</div>'
       + '<div style="margin-top:18px"><button class="danger" data-action="delete-landmark" data-id="' + lm.id + '">🗑 Eliminar hito del todo</button>'
       + ' <span class="muted small">no se puede deshacer</span></div>'
-      + '</div></div></div>';
+      + '</div></div></div>');
     wireDrag(lm);
   }
 
@@ -2556,6 +2573,7 @@
     else if (e.key === 'ArrowLeft') detailMove(-1);
     else if (e.key === 'ArrowDown' || e.key === ' ') { if (n) { state.detailImg = (state.detailImg + 1) % n; renderDetail(); } }
     else if (e.key === 'ArrowUp') { if (n) { state.detailImg = (state.detailImg - 1 + n) % n; renderDetail(); } }
+    else if (READONLY) return;
     else if (k === 'c') setStatus(lm.id, 'curado', true);
     else if (k === 'p') setStatus(lm.id, 'posible', true);
     else if (k === 'x' || k === 'd') setStatus(lm.id, 'descartado', true);

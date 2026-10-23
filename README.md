@@ -265,6 +265,53 @@ probar la herramienta con volumen real: subirlos a un viaje nuevo y dejar que lo
   «desde fuera». Se puede cambiar con la variable de entorno `ARCHTRIP_PUBLIC_HOSTS`
   (lista separada por comas).
 
+## Publicar un viaje para los alumnos
+
+Una **versión de consulta** del viaje, en una web gratuita, que se pone al día sola desde la
+instancia de casa. Es la copia HTML autónoma en modo solo lectura: mapa, fotos, arquitectos, lista,
+fichas e itinerario, con un botón para cada PDF del itinerario (día a día y con fotos).
+
+**Qué no sale**: nada se puede curar, editar ni borrar; no están los hitos **descartados** ni los que
+siguen **pendientes** (salvo que ya estén metidos en un día, y entonces salen como *por decidir*), y
+no aparece nada de la **gestión de las visitas** (estado ni historial de notas). Se quita al generar
+el archivo, no solo de la pantalla, así que tampoco está en el código fuente. Los curados salen como
+*fijos* y los posibles como *opcionales*. Las notas de los hitos y de los días, y la marca de
+*pendiente de confirmar*, sí salen, igual que en el PDF día a día.
+
+La página no se indexa en buscadores y, al pegar el enlace en WhatsApp o Telegram, sale una tarjeta
+con el nombre del viaje, la ruta y una foto. El enlace es secreto, pero no privado: quien lo tenga
+puede verlo (para pedir contraseña, ver el paso 6). Un viaje *solo en local* nunca se publica.
+
+### Configurar Cloudflare Pages (una vez)
+
+1. Crea una cuenta gratuita en https://dash.cloudflare.com. No hace falta tener dominio: la página
+   queda en `https://<proyecto>.pages.dev`.
+2. **ID de cuenta**: en el panel, *Workers y Pages* lo enseña en la columna de la derecha (*Account
+   ID*); también es el código largo que aparece en la dirección, `dash.cloudflare.com/<ID>/…`.
+3. **Token**: arriba a la derecha, tu perfil → *API Tokens* → *Create Token* → *Create Custom Token*.
+   Nombre `archtrip-publicar`; en *Permissions*, `Account` · `Cloudflare Pages` · `Edit`; en *Account
+   Resources*, tu cuenta. *Continue* → *Create Token* y cópialo: solo se enseña esa vez.
+4. En la máquina de archTrip hace falta **Node.js 20 o más reciente** (`node --version`). El script
+   llama a `npx --yes wrangler@4`, que se descarga solo la primera vez.
+5. Configura y publica una primera vez a mano:
+   ```
+   cp scripts/publicar.env.example scripts/publicar.env
+   chmod 600 scripts/publicar.env      # lleva el token
+   nano scripts/publicar.env           # VIAJE (el número de #/viaje/<n>), PROYECTO, ID y token
+   scripts/publicar.sh                 # la primera vez crea el proyecto en Cloudflare
+   ```
+   Al acabar dice la dirección. Después, con cron, cada cuarto de hora (solo sube algo si el viaje ha
+   cambiado; si no, no hace nada):
+   ```
+   */15 * * * * /srv/apps/archtrip/scripts/publicar.sh >> /srv/apps/archtrip/data/publicar.log 2>&1
+   ```
+   `FORZAR=1 scripts/publicar.sh` sube aunque no haya cambios. Para publicar otro viaje a la vez, otro
+   archivo de configuración con otro `PROYECTO`, y `PUBLICAR_CONF=scripts/otro.env` delante.
+6. **Opcional, con contraseña**: Cloudflare Zero Trust (gratis hasta 50 usuarios) → *Access* →
+   *Applications* → *Add an application* → *Self-hosted*, con el dominio `<proyecto>.pages.dev`, y una
+   política *Allow* con los correos de los alumnos (o *Emails ending in* `@` el dominio de la
+   escuela). Al entrar, cada uno recibe un código en su correo.
+
 ## Copias de seguridad
 
 `scripts/backup.sh` guarda en `data/backups/` una instantánea consistente de la base de datos

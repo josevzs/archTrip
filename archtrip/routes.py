@@ -1037,9 +1037,12 @@ def enrich_next(trip_id):
 
 @api.get("/trips/<int:trip_id>/export/html")
 def export_html(trip_id):
+    """`?alumnos=1`: la copia de consulta, sin edición ni gestión, que publica scripts/publicar.sh
+    (`&pdfs=1` le pone los botones a los PDF que el script sube al lado)."""
     db = get_db()
     trip = _trip_or_404(db, trip_id)
-    html, filename = export.standalone_html(_trip_payload(db, trip))
+    html, filename = export.standalone_html(_trip_payload(db, trip), alumnos=request.args.get("alumnos") == "1",
+                                            pdfs=request.args.get("pdfs") == "1")
     return send_file(io.BytesIO(html.encode("utf-8")), mimetype="text/html",
                      as_attachment=True, download_name=filename)
 
@@ -1047,10 +1050,14 @@ def export_html(trip_id):
 @api.get("/trips/<int:trip_id>/export/itinerario")
 def export_itinerary(trip_id):
     """Day-by-day itinerary as a PDF, ready to print or to send to the students.
-    `?fotos=1` adds each landmark's picture (slower: the images are fetched on the fly)."""
+    `?fotos=1` adds each landmark's picture (slower: the images are fetched on the fly).
+    `?alumnos=1` leaves out the same as the published copy (scripts/publicar.sh)."""
     db = get_db()
     trip = _trip_or_404(db, trip_id)
-    data, filename = export.itinerary_pdf(_trip_payload(db, trip), gallery="fotos" in request.args)
+    payload = _trip_payload(db, trip)
+    if request.args.get("alumnos") == "1":
+        payload = export.student_payload(payload)
+    data, filename = export.itinerary_pdf(payload, gallery="fotos" in request.args)
     return send_file(io.BytesIO(data), mimetype="application/pdf",
                      as_attachment=True, download_name=filename)
 
