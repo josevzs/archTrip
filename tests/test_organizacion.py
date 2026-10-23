@@ -3,6 +3,7 @@
 Es una capa aparte del curado: un hito puede estar *curado* y la visita sin pedir, o *tal vez* y
 ya confirmada. Los dos PDF de antes (día a día y con fotos) no deben enterarse de nada de esto."""
 import io
+import re
 
 from pypdf import PdfReader
 
@@ -11,7 +12,11 @@ from test_api import enrich_all, fake_geo, new_trip  # noqa: F401  (fixture + he
 
 
 def pdf_text(data):
-    return "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(data)).pages)
+    """El texto del PDF con los saltos aplanados: por dónde parte cada línea depende de la fuente
+    que haya en la máquina (DejaVu en el servidor, Consolas en Windows), y no es lo que se
+    comprueba aquí — una nota partida en dos líneas hacía fallar la prueba solo en Linux."""
+    crudo = "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(data)).pages)
+    return re.sub(r"\s+", " ", crudo)
 
 
 def seed(client):
