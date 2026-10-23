@@ -105,6 +105,19 @@ CREATE TABLE IF NOT EXISTS org_notes (
 );
 CREATE INDEX IF NOT EXISTS idx_org_notes ON org_notes (landmark_id, id);
 
+-- La versión de consulta de un viaje publicada en Cloudflare Pages (ver publish.py).
+CREATE TABLE IF NOT EXISTS publications (
+    trip_id      INTEGER PRIMARY KEY REFERENCES trips(id) ON DELETE CASCADE,
+    project      TEXT NOT NULL UNIQUE,                -- nombre del proyecto en Cloudflare
+    url          TEXT,                                -- la dirección que da Cloudflare al crearlo
+    auto         INTEGER NOT NULL DEFAULT 1,          -- 1 = se vuelve a subir sola cuando el viaje cambia
+    requested    INTEGER NOT NULL DEFAULT 0,          -- 1 = pedida a mano, pendiente del hilo
+    state        TEXT NOT NULL DEFAULT 'pendiente',   -- pendiente | publicando | ok | error
+    hash         TEXT,                                -- de lo último subido, para no repetir
+    published_at TEXT,
+    error        TEXT
+);
+
 -- Editing sessions (see audit.py): opened by the first change of a client, closed by inactivity.
 CREATE TABLE IF NOT EXISTS sessions (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

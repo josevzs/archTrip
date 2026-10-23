@@ -15,7 +15,7 @@ from pathlib import Path
 
 from flask import Blueprint, abort, current_app, jsonify, make_response, request, send_file
 
-from . import access, audit, excel, export
+from . import access, audit, excel, export, publish
 from .db import get_db, row, rows
 
 adm = Blueprint("admin", __name__)
@@ -565,3 +565,47 @@ def restore_backup(name):
     audit.log(db, "restore", old=None, new=name, snapshot={"saved_before": f"pre-restore-{stamp}.db"}, revertible=False)
     db.commit()
     return jsonify({"restored": name, "saved_before": f"pre-restore-{stamp}.db"})
+
+
+# ------------------------------------------------------------ publicar (ver publish.py)
+
+def _published(db):
+    return jsonify({"configured": publish.configured(), "items": publish.listing(db)})
+
+
+@adm.get("/publicaciones")
+@require_admin
+def publications():
+    return _published(get_db())
+
+
+@adm.post("/publicaciones/<int:trip_id>")
+@require_admin
+def publish_trip(trip_id):
+    """Publicar un viaje (la primera vez, con el nombre de la web) o volver a subirlo ya."""
+    db = get_db()
+    try:
+        publish.request_publish(db, trip_id, (request.get_json(silent=True) or {}).get("project"))
+    except publish.PublishError as exc:
+        abort(400, description=str(exc))
+    return _published(db)
+
+
+@adm.patch("/publicaciones/<int:trip_id>")
+@require_admin
+def publication_auto(trip_id):
+    db = get_db()
+    publish.set_auto(db, trip_id, bool((request.get_json(silent=True) or {}).get("auto")))
+    return _published(db)
+
+
+@adm.delete("/publicaciones/<int:trip_id>")
+@require_admin
+def withdraw_trip(trip_id):
+    """Quita la web de Cloudflare y deja de publicar el viaje."""
+    db = get_db()
+    try:
+        publish.withdraw(db, trip_id)
+    except publish.PublishError as exc:
+        abort(400, description=str(exc))
+    return _published(db)

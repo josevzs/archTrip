@@ -28,6 +28,9 @@ def create_app(db_path=None):
     app.register_blueprint(api, url_prefix="/api")
     app.register_blueprint(adm, url_prefix="/api/admin")
 
+    from . import publish
+    publish.start_worker(app)          # sube a Cloudflare los viajes publicados (admin → Publicar)
+
     @app.after_request
     def _session_cookie(resp):
         # a client gets its editing token the first time it changes something (audit.py)

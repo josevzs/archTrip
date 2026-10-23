@@ -267,50 +267,71 @@ probar la herramienta con volumen real: subirlos a un viaje nuevo y dejar que lo
 
 ## Publicar un viaje para los alumnos
 
-Una **versión de consulta** del viaje, en una web gratuita, que se pone al día sola desde la
-instancia de casa. Es la copia HTML autónoma en modo solo lectura: mapa, fotos, arquitectos, lista,
-fichas e itinerario, con un botón para cada PDF del itinerario (día a día y con fotos).
+Una **versión de consulta** del viaje en una web gratuita (Cloudflare Pages), que se pone al día sola
+desde la instancia de casa. Es la copia HTML autónoma en modo solo lectura: mapa, fotos, arquitectos,
+lista, fichas e itinerario, con un botón para cada PDF del itinerario (día a día y con fotos).
 
 **Qué no sale**: nada se puede curar, editar ni borrar; no están los hitos **descartados** ni los que
 siguen **pendientes** (salvo que ya estén metidos en un día, y entonces salen como *por decidir*), y
 no aparece nada de la **gestión de las visitas** (estado ni historial de notas). Se quita al generar
 el archivo, no solo de la pantalla, así que tampoco está en el código fuente. Los curados salen como
 *fijos* y los posibles como *opcionales*. Las notas de los hitos y de los días, y la marca de
-*pendiente de confirmar*, sí salen, igual que en el PDF día a día.
+*pendiente de confirmar*, sí salen, igual que en el PDF día a día. Los dos PDF publicados dejan
+fuera lo mismo que la web.
 
-La página no se indexa en buscadores y, al pegar el enlace en WhatsApp o Telegram, sale una tarjeta
-con el nombre del viaje, la ruta y una foto. El enlace es secreto, pero no privado: quien lo tenga
-puede verlo (para pedir contraseña, ver el paso 6). Un viaje *solo en local* nunca se publica.
+**Para los alumnos**:
+- **Hoy**: durante el viaje, la web se abre directamente en el itinerario, en el día de hoy, que va
+  resaltado (*HOY*); antes del viaje, el aviso de arriba cuenta los días que faltan.
+- **Dónde estoy**: el botón ◎ del mapa enseña tu posición (el punto azul) y la va siguiendo; se
+  apaga al volver a pulsarlo o al salir del mapa. El navegador pide permiso la primera vez.
+- **Enlace a cada ficha**: cada ficha tiene su dirección (`…/#/hito/<n>`); el botón *compartir* abre
+  en el móvil la hoja de compartir (WhatsApp…) y en el ordenador copia el enlace.
+- Al pegar el enlace en WhatsApp o Telegram sale una tarjeta con el nombre del viaje, la ruta y una
+  foto. La web no se indexa en buscadores.
 
-### Configurar Cloudflare Pages (una vez)
+El enlace es secreto, pero no privado: quien lo tenga puede verlo (para pedir acceso, ver abajo). Un
+viaje *solo en local* nunca se publica.
 
-1. Crea una cuenta gratuita en https://dash.cloudflare.com. No hace falta tener dominio: la página
-   queda en `https://<proyecto>.pages.dev`.
+### Configurar Cloudflare (una vez)
+
+1. Crea una cuenta gratuita en https://dash.cloudflare.com. No hace falta tener dominio: cada viaje
+   queda en `https://<nombre>.pages.dev`.
 2. **ID de cuenta**: en el panel, *Workers y Pages* lo enseña en la columna de la derecha (*Account
    ID*); también es el código largo que aparece en la dirección, `dash.cloudflare.com/<ID>/…`.
 3. **Token**: arriba a la derecha, tu perfil → *API Tokens* → *Create Token* → *Create Custom Token*.
-   Nombre `archtrip-publicar`; en *Permissions*, `Account` · `Cloudflare Pages` · `Edit`; en *Account
+   Nombre `archtrip`; en *Permissions*, `Account` · `Cloudflare Pages` · `Edit`; en *Account
    Resources*, tu cuenta. *Continue* → *Create Token* y cópialo: solo se enseña esa vez.
-4. En la máquina de archTrip hace falta **Node.js 20 o más reciente** (`node --version`). El script
-   llama a `npx --yes wrangler@4`, que se descarga solo la primera vez.
-5. Configura y publica una primera vez a mano:
+4. En la carpeta de `docker-compose.yml`, crea un archivo `.env` (no entra en git) con:
    ```
-   cp scripts/publicar.env.example scripts/publicar.env
-   chmod 600 scripts/publicar.env      # lleva el token
-   nano scripts/publicar.env           # VIAJE (el número de #/viaje/<n>), PROYECTO, ID y token
-   scripts/publicar.sh                 # la primera vez crea el proyecto en Cloudflare
+   CLOUDFLARE_ACCOUNT_ID=…
+   CLOUDFLARE_API_TOKEN=…
    ```
-   Al acabar dice la dirección. Después, con cron, cada cuarto de hora (solo sube algo si el viaje ha
-   cambiado; si no, no hace nada):
-   ```
-   */15 * * * * /srv/apps/archtrip/scripts/publicar.sh >> /srv/apps/archtrip/data/publicar.log 2>&1
-   ```
-   `FORZAR=1 scripts/publicar.sh` sube aunque no haya cambios. Para publicar otro viaje a la vez, otro
-   archivo de configuración con otro `PROYECTO`, y `PUBLICAR_CONF=scripts/otro.env` delante.
-6. **Opcional, con contraseña**: Cloudflare Zero Trust (gratis hasta 50 usuarios) → *Access* →
-   *Applications* → *Add an application* → *Self-hosted*, con el dominio `<proyecto>.pages.dev`, y una
-   política *Allow* con los correos de los alumnos (o *Emails ending in* `@` el dominio de la
-   escuela). Al entrar, cada uno recibe un código en su correo.
+   `chmod 600 .env` y `docker compose up -d --build` (la imagen ya trae Node.js y `wrangler`, que es
+   con lo que se suben los archivos). Sin Docker basta con exportar esas dos variables y tener
+   Node.js 22 o más reciente; `ARCHTRIP_WRANGLER` cambia cómo se llama a wrangler.
+
+### Publicar
+
+En la **administración** (`#/admin`), apartado *Publicar para los alumnos*: cada viaje con un nombre
+de web ya propuesto (se puede cambiar) y un botón **Publicar**. La primera vez tarda un par de
+minutos (prepara los PDF, que bajan las fotos, y crea la web); el estado pasa de *en cola* a
+*subiendo…* y a *publicada*, con el enlace. Si Cloudflare da el nombre por ocupado, le añade un
+sufijo, y el enlace bueno es el que sale ahí.
+
+- **Actualizar sola** (marcada de serie): el servidor mira cada 10 minutos
+  (`ARCHTRIP_PUBLISH_EVERY`, en segundos) y vuelve a subir la web si el viaje ha cambiado en algo de lo
+  que se publica. Cambiar la gestión de las visitas, por ejemplo, no cuenta.
+- **Subir ahora**: la sube ya, sin esperar.
+- **Retirar**: borra la web de Cloudflare (el enlace deja de funcionar) y deja el viaje como estaba.
+  Se puede volver a publicar cuando se quiera.
+- Si algo falla (token mal copiado, sin conexión…), el error se ve en la misma fila.
+- Si un viaje publicado pasa a *solo en local*, la web se queda como estaba y deja de actualizarse
+  hasta que se vuelva a publicar. Si se borra el viaje, la web sigue en Cloudflare: retírala antes.
+
+**Opcional, con acceso controlado**: Cloudflare Zero Trust (gratis hasta 50 usuarios) → *Access* →
+*Applications* → *Add an application* → *Self-hosted*, con el dominio `<nombre>.pages.dev`, y una
+política *Allow* con los correos de los alumnos (o *Emails ending in* `@` el dominio de la escuela).
+Al entrar, cada uno recibe un código en su correo.
 
 ## Copias de seguridad
 
@@ -357,7 +378,8 @@ pytest
 - `archtrip/` — Flask: `db.py` (SQLite), `excel.py` (plantillas y parseo), `geo.py`
   (Nominatim/OSRM), `images.py` (Wikidata/Commons), `enrich.py` (un paso de trabajo por
   llamada), `export.py` (HTML autónomo y ZIP Obsidian), `routes.py` (API `/api/*`),
-  `audit.py` (sesiones y diario de cambios), `admin.py` (API `/api/admin/*`: deshacer, copias).
+  `audit.py` (sesiones y diario de cambios), `admin.py` (API `/api/admin/*`: deshacer, copias,
+  publicar), `publish.py` (la web de los alumnos en Cloudflare Pages y su hilo de fondo).
   El itinerario son dos tablas (`trip_days`, `day_items`) y su API `/api/days/*` y `/api/items/*`.
 - `static/index.html` — todo el frontend (CSS y JS inline, sin build). El mismo archivo es
   la base del export HTML: el servidor solo le inyecta los datos en `<!--ARCHTRIP_DATA-->`.

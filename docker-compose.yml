@@ -10,3 +10,7 @@ services:
     environment:
       # contraseña de la página de administración (#/admin); sin esta línea vale "admin"
       - ARCHTRIP_ADMIN_PASSWORD=${ARCHTRIP_ADMIN_PASSWORD:-admin}
+      # publicar para los alumnos en Cloudflare Pages (admin → Publicar para los alumnos): se ponen
+      # en un archivo .env junto a este, que no entra en git (ver el README)
+      - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}

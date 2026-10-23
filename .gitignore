@@ -3,4 +3,4 @@ data/
 __pycache__/
 *.pyc
 .pytest_cache/
-scripts/publicar.env
+.env

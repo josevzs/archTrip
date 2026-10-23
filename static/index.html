@@ -247,6 +247,13 @@
   .itin .itinbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
   .dayc { border: 1px solid var(--line); border-left: 3px solid var(--ink); margin-bottom: 14px; }
   .dayc > .head { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 8px 10px; background: var(--soft); }
+  /* el día de hoy, durante el viaje */
+  .dayc.today { border-left-color: var(--ok); }
+  .dayc.today > .head { background: #e7f3ec; }
+  .dayc .hoy { background: var(--ok); color: var(--bg); font-size: 11px; letter-spacing: 1px; padding: 1px 6px; }
+  /* «dónde estoy» en el mapa */
+  .locatebtn a { font-size: 18px; line-height: 30px; text-align: center; text-decoration: none; color: var(--ink); cursor: pointer; }
+  .locatebtn a.on { color: #2a6ce0; }
   .dayc .num { text-transform: uppercase; letter-spacing: 1px; font-size: 12px; color: var(--muted); min-width: 52px; }
   .dayc .head input, .dayc .head select { font-family: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
   .dayc .head input.title { flex: 1 1 160px; min-width: 120px; }
@@ -695,7 +702,8 @@
       const pdfs = window.__ARCHTRIP__.readonly.pdfs || [];
       toolbar = '<div class="banner small">Versión de consulta del viaje, actualizada el ' + esc(shortStamp(window.__ARCHTRIP__.exported_at)) + '. '
         + 'Los edificios <span style="color:' + COLORS.curado + '">fijos</span> están en el plan; los '
-        + '<span style="color:' + COLORS.posible + '">opcionales</span>, si da tiempo.</div>'
+        + '<span style="color:' + COLORS.posible + '">opcionales</span>, si da tiempo.'
+        + (tripWhen() ? '<div style="margin-top:4px">' + tripWhen() + '</div>' : '') + '</div>'
         + (pdfs.length ? '<div class="toolbar"><div class="group">' + pdfs.map((f) => '<a class="btn quiet" href="' + attr(f.file) + '" download>' + esc(f.label) + '</a>').join('') + '</div></div>' : '');
     } else if (STANDALONE) {
       toolbar = '<div class="banner small">Copia autónoma del viaje. Los cambios se guardan en este navegador; '
@@ -1176,13 +1184,39 @@
       + '<div class="small" style="margin-top:6px"><button class="link" data-action="picker-close">cerrar</button></div></div>';
   }
 
+  function todayIso() {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  const todayDay = () => state.days.find((d) => d.date === todayIso()) || null;
+
+  // Antes del viaje, cuánto falta; durante, qué día es. Después, nada.
+  function tripWhen() {
+    const today = todayIso();
+    const hoy = state.days.findIndex((d) => d.date === today);
+    if (hoy >= 0) return 'Hoy es el <b>día ' + (hoy + 1) + '</b> del viaje · <button class="link" data-action="go-today">ver el día de hoy</button>';
+    const first = state.days.map((d) => d.date).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x || '')).sort()[0];
+    if (!first || today >= first) return '';
+    const n = Math.round((Date.parse(first) - Date.parse(today)) / 864e5);
+    return n === 1 ? '¡Mañana empieza el viaje!' : 'Faltan <b>' + n + ' días</b> para el viaje.';
+  }
+
+  function goToday() {
+    const day = todayDay();
+    if (!day) return;
+    if (state.view !== 'itinerario') { state.view = 'itinerario'; renderList(); }
+    const el = document.querySelector('.dayc[data-day="' + day.id + '"]');
+    if (el) el.scrollIntoView({ block: 'start' });
+  }
+
   function dayView(day, n) {
+    const hoy = day.date && day.date === todayIso() ? '<span class="hoy">HOY</span>' : '';
     const stops = state.stops.map((s) => '<option value="' + s.id + '"' + (day.stop_id === s.id ? ' selected' : '') + '>' + esc(s.city) + '</option>').join('');
     const head = STANDALONE
-      ? '<div class="head"><span class="num">Día ' + n + '</span><b>' + esc(prettyDate(day.date) || day.date || '') + '</b>'
+      ? '<div class="head"><span class="num">Día ' + n + '</span>' + hoy + '<b>' + esc(prettyDate(day.date) || day.date || '') + '</b>'
         + (day.title ? '<span>' + esc(day.title) + '</span>' : '')
         + (day.stop_city ? '<span class="when">base: ' + esc(day.stop_city) + '</span>' : '') + '</div>'
-      : '<div class="head"><span class="num">Día ' + n + '</span>'
+      : '<div class="head"><span class="num">Día ' + n + '</span>' + hoy
         + '<input type="date" value="' + attr(day.date || '') + '" data-day-field="date" data-id="' + day.id + '" title="Fecha">'
         + '<span class="when">' + esc(prettyDate(day.date)) + '</span>'
         + '<input class="title" type="text" value="' + attr(day.title || '') + '" placeholder="título (opcional): «llegada», «Nara → Kioto»…" data-day-field="title" data-id="' + day.id + '">'
@@ -1198,7 +1232,7 @@
       + '<button class="quiet" data-action="item-note" data-id="' + day.id + '">＋ Nota</button>'
       + ((day.items || []).filter((it) => it.at_time).length > 1 ? '<button class="quiet" data-action="sort-by-time" data-id="' + day.id + '">ordenar por hora</button>' : '')
       + '</div>';
-    return '<section class="dayc" data-day="' + day.id + '">' + head + notes + '<ul>' + items + '</ul>'
+    return '<section class="dayc' + (hoy ? ' today' : '') + '" data-day="' + day.id + '">' + head + notes + '<ul>' + items + '</ul>'
       + (state.picker && state.picker.dayId === day.id ? pickerView(day) : '') + foot + '</section>';
   }
 
@@ -1539,6 +1573,15 @@
         Object.keys(BASEMAPS).forEach((name) => { const b = BASEMAPS[name]; bases[name] = L.tileLayer(b.url, { maxNativeZoom: b.native, maxZoom: 20, attribution: b.attribution }); });
         bases[chosen].addTo(mapState.map);
         L.control.layers(bases, null, { position: 'topright', collapsed: true }).addTo(mapState.map);
+        const Locate = L.Control.extend({ onAdd: () => {
+          const box = L.DomUtil.create('div', 'leaflet-bar locatebtn');
+          box.innerHTML = '<a role="button" href="#" title="Dónde estoy" aria-label="Dónde estoy" class="' + (me.watch != null ? 'on' : '') + '">◎</a>';
+          L.DomEvent.on(box.firstChild, 'click', (e) => { L.DomEvent.stop(e); toggleLocate(); });
+          return box;
+        } });
+        new Locate({ position: 'topleft' }).addTo(mapState.map);
+        me.layer = null;
+        drawMe();
         mapState.map.on('baselayerchange', (e) => { try { localStorage.setItem('archtrip:basemap', e.name); } catch (x) { /* ignore */ } });
         mapState.layer = L.layerGroup().addTo(mapState.map);            // stops + route line, never clustered
         mapState.zone = L.layerGroup().addTo(mapState.map);              // envolvente + corredor + candidatos
@@ -1555,6 +1598,40 @@
       }
       updateMarkers(L);
     }).catch((e) => { el.innerHTML = '<div class="msg err">' + esc(e.message) + '</div>'; });
+  }
+
+  // ---- dónde estoy: el punto azul del móvil sobre el mapa, mientras el mapa esté a la vista
+  const me = { watch: null, pos: null, layer: null, centered: false };
+  function toggleLocate() {
+    if (me.watch != null) { stopLocate(); return; }
+    if (!navigator.geolocation) { locateFail('Este navegador no sabe dónde estás.'); return; }
+    me.centered = false;
+    me.watch = navigator.geolocation.watchPosition((p) => {
+      me.pos = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy };
+      drawMe();
+      if (!me.centered && mapState.map) { mapState.map.setView([me.pos.lat, me.pos.lon], Math.max(mapState.map.getZoom(), 15)); me.centered = true; }
+    }, (err) => {
+      stopLocate();
+      locateFail(err.code === 1 ? 'Sin permiso para saber dónde estás: actívalo para esta página en los ajustes del navegador.'
+        : 'No se ha podido saber dónde estás' + (location.protocol === 'file:' ? ' (en un archivo abierto desde el ordenador no funciona: hace falta la web).' : '.'));
+    }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+    locateButton();
+  }
+  function stopLocate() {
+    if (me.watch != null) navigator.geolocation.clearWatch(me.watch);
+    me.watch = null; me.pos = null;
+    drawMe(); locateButton();
+  }
+  function locateFail(text) { say(text, 'err'); const m = document.getElementById('msg'); if (m) m.innerHTML = msgView(); }
+  function locateButton() { const a = document.querySelector('.locatebtn a'); if (a) a.classList.toggle('on', me.watch != null); }
+  function drawMe() {
+    if (me.layer) { me.layer.remove(); me.layer = null; }
+    if (!me.pos || !mapState.map || !window.L) return;
+    const at = [me.pos.lat, me.pos.lon];
+    me.layer = L.layerGroup([
+      L.circle(at, { radius: me.pos.acc || 0, color: '#2a6ce0', weight: 1, fillOpacity: 0.1, interactive: false }),
+      L.circleMarker(at, { radius: 7, color: '#fff', weight: 2, fillColor: '#2a6ce0', fillOpacity: 1 }).bindTooltip('Estás aquí'),
+    ]).addTo(mapState.map);
   }
 
   // Las fotos sobre el mapa necesitan más aire entre burbujas que los puntos, o se tapan.
@@ -1727,6 +1804,7 @@
     el('daybar').innerHTML = daybarView();
     if (state.view === 'mapa') renderMap();
     else {
+      if (me.watch != null) stopLocate();          // fuera del mapa no hace falta gastar batería
       el('list').innerHTML = listView();
       if (state.view === 'itinerario') wireItems();
     }
@@ -1767,7 +1845,7 @@
       + '<div class="dnav">' + (READONLY ? '' : '<label class="check" title="Al pasar con las flechas o C/P/X no se muestran los descartados"><input type="checkbox" data-toggle="skipRejected" ' + (state.skipRejected ? 'checked' : '') + '> saltar descartados</label>')
       + '<button class="quiet" data-action="detail-prev" ' + (idx <= 0 ? 'disabled' : '') + '>‹ anterior</button>'
       + '<button class="quiet" data-action="detail-next" ' + (idx >= list.length - 1 ? 'disabled' : '') + '>siguiente ›</button>'
-      + (STANDALONE ? '' : '<button class="quiet" data-action="copy-link" data-id="' + lm.id + '" title="Copiar el enlace directo a esta ficha">enlace</button>')
+      + '<button class="quiet" data-action="copy-link" data-id="' + lm.id + '" title="Copiar el enlace directo a esta ficha">' + (READONLY && navigator.share ? 'compartir' : 'enlace') + '</button>'
       + '<button data-action="close-detail">✕ cerrar</button></div></div>'
       + '<div class="dmain"><div class="dviewer"><div class="stage">' + stage + '</div><div class="caption">' + caption + '</div>'
       + (all.length > 1 || plans.length ? '<div class="strip">' + (photos.length ? '<span class="lab">Fotos</span>' + thumbs(photos, 0) : '')
@@ -1925,6 +2003,7 @@
       body = '<div class="row" style="margin-bottom:8px"><span class="muted small">Cada sesión es un navegador que ha cambiado algo; se cierra tras 1 h sin cambios. Los deshacer también quedan registrados y se pueden volver a deshacer.</span>'
         + '<button class="quiet" data-action="adm-logout">Salir</button></div>'
         + (A.note ? '<div class="msg">' + esc(A.note) + ' <button class="link" data-action="adm-dismiss">cerrar</button></div>' : '')
+        + publicationsView(A)
         + '<h2>Sesiones de edición</h2>' + sessions
         + '<h2>Historial de un hito</h2><form class="row" data-form="admin-search"><input type="search" name="q" class="grow" placeholder="Nombre del hito (o su número)" value="' + attr(A.query) + '"><button type="submit">Buscar</button></form>'
         + (A.history ? (A.history.length ? '<ul class="changes" id="history" style="margin-top:10px">' + A.history.map((c) => changeItem(c, true)).join('') + '</ul>' : '<div class="muted small" style="margin-top:8px">Nada registrado para ese hito.</div>') : '')
@@ -1936,10 +2015,59 @@
       + '<div class="small" style="margin:6px 0 16px"><a href="#/">← Viajes</a></div><div class="adm">' + body + '</div>';
   }
 
+  // Publicar para los alumnos (archtrip/publish.py): un viaje, un nombre de web y un botón; el
+  // servidor lo sube a Cloudflare Pages y, mientras «actualizar sola» siga marcada, lo vuelve a
+  // subir cada vez que el viaje cambia.
+  const PUB_STATE = { pendiente: 'en cola', publicando: 'subiendo…', ok: 'publicada', error: 'error' };
+  function publicationsView(A) {
+    const P = A.pubs;
+    if (!P) return '';
+    const head = '<h2>Publicar para los alumnos</h2><div class="muted small" style="margin-bottom:8px">'
+      + 'Una web de solo consulta en Cloudflare Pages, con mapa, fotos, itinerario y sus PDF; sin descartados, sin pendientes y sin la gestión de las visitas. '
+      + 'Con <b>actualizar sola</b>, el servidor la vuelve a subir unos minutos después de cada cambio del viaje.</div>'
+      + (P.configured ? '' : '<div class="msg err">Faltan las claves de Cloudflare en el servidor: <code>CLOUDFLARE_ACCOUNT_ID</code> y '
+        + '<code>CLOUDFLARE_API_TOKEN</code> en el archivo <code>.env</code> junto a docker-compose.yml (ver el README) y reiniciar.</div>');
+    const rowsHtml = P.items.map((t) => {
+      let web, estado = '', acciones;
+      if (!t.project) {
+        web = t.private ? '<span class="muted small">solo en local: publícalo antes en la lista de viajes</span>'
+          : '<input class="sname" data-pub-name="' + t.trip_id + '" value="' + attr(t.suggested) + '" title="Nombre de la web: quedará en https://<nombre>.pages.dev">'
+            + '<span class="muted small">.pages.dev</span>';
+        acciones = t.private ? '' : '<button data-action="adm-publish" data-id="' + t.trip_id + '"' + (P.configured ? '' : ' disabled') + '>Publicar</button>';
+      } else {
+        web = t.url ? '<a href="' + attr(t.url) + '" target="_blank" rel="noopener">' + esc(t.url.replace(/^https:\/\//, '')) + '</a>' : esc(t.project);
+        const st = t.requested ? 'pendiente' : t.state;
+        estado = '<span class="' + (st === 'error' ? 'warn' : st === 'ok' ? 'ok' : 'muted') + '">' + PUB_STATE[st] + '</span>'
+          + (t.published_at ? '<div class="muted small">última subida ' + when(t.published_at) + '</div>' : '')
+          + (st === 'error' && t.error ? '<div class="small warn" style="max-width:420px;overflow-wrap:anywhere">' + esc(t.error) + '</div>' : '');
+        acciones = '<label class="check small" title="La vuelve a subir cuando el viaje cambia"><input type="checkbox" data-action="adm-pub-auto" data-id="' + t.trip_id + '"' + (t.auto ? ' checked' : '') + '> actualizar sola</label>'
+          + '<button class="quiet" data-action="adm-publish" data-id="' + t.trip_id + '"' + (t.requested || t.state === 'publicando' ? ' disabled' : '') + '>Subir ahora</button>'
+          + '<button class="danger" data-action="adm-unpublish" data-id="' + t.trip_id + '">Retirar</button>';
+      }
+      return '<tr><td>' + esc(t.trip_name) + '</td><td class="row" style="gap:4px">' + web + '</td><td>' + estado + '</td><td class="row" style="gap:6px">' + acciones + '</td></tr>';
+    }).join('');
+    return head + (P.items.length ? '<table><tr><th>Viaje</th><th>Web</th><th>Estado</th><th></th></tr>' + rowsHtml + '</table>' : '<div class="muted small">No hay viajes.</div>');
+  }
+
+  // mientras haya algo en cola o subiéndose, se repregunta cada pocos segundos
+  let pubTimer = null;
+  function watchPublications() {
+    clearTimeout(pubTimer);
+    const P = state.admin.pubs;
+    if (!P || !P.items.some((t) => t.project && (t.requested || t.state === 'publicando' || t.state === 'pendiente'))) return;
+    pubTimer = setTimeout(async () => {
+      if (state.screen !== 'admin' || !state.admin.authed) return;
+      try { state.admin.pubs = await admin.get('/publicaciones'); } catch (e) { return; }
+      if (!document.activeElement || !document.activeElement.matches('input')) render();
+      watchPublications();
+    }, 3000);
+  }
+
   const admin = {
     get: (path) => call('GET', '/api/admin' + path),
     post: (path, body) => call('POST', '/api/admin' + path, body === undefined ? {} : body),
     patch: (path, body) => call('PATCH', '/api/admin' + path, body),
+    del: (path) => call('DELETE', '/api/admin' + path),
   };
 
   async function loadAdmin() {
@@ -1955,7 +2083,8 @@
 
   async function refreshAdmin() {
     const A = state.admin;
-    [A.sessions, A.backups] = await Promise.all([admin.get('/sessions'), admin.get('/backups')]);
+    [A.sessions, A.backups, A.pubs] = await Promise.all([admin.get('/sessions'), admin.get('/backups'), admin.get('/publicaciones')]);
+    watchPublications();
     if (A.open != null) A.changes = await admin.get('/sessions/' + A.open + '/changes');
     if (A.query) A.history = await admin.get('/changes?landmark=' + q(A.query));
   }
@@ -2005,11 +2134,15 @@
       try { state.activeDay = Number(localStorage.getItem('archtrip:day:' + d.trip.id)) || null; } catch (e) { state.activeDay = null; }
       if (!state.days.some((x) => x.id === state.activeDay)) state.activeDay = state.days.length ? state.days[0].id : null;
       state.screen = 'trip';
+      // un alumno que abre la web durante el viaje quiere ver qué toca hoy
+      const toToday = READONLY && !openId && !!todayDay();
+      if (toToday) state.view = 'itinerario';
       if (!keepMsg) state.msg = null;
       state.editing = null; state.detail = null; state.picker = null;
       mapState.map = null; mapState.cluster = null; mapState.fitted = false; mapState.listPopup = null;
       render();
       if (openId && state.landmarks.some((x) => x.id === openId)) openDetail(openId);   // deep link to a ficha
+      else if (toToday) goToday();
       if (d.pending && d.pending.total > 0) runEnrich();
     } catch (e) {
       fail(e); state.screen = 'trips'; render();
@@ -2018,7 +2151,12 @@
 
   // Keep the address bar pointing at the open ficha so a link can be shared (#/viaje/T/hito/L).
   function syncHash() {
-    if (STANDALONE || !state.trip) return;
+    if (!state.trip) return;
+    if (STANDALONE) {      // un solo viaje en el archivo: la dirección solo dice qué ficha está abierta
+      const hash = state.detail != null ? '#/hito/' + state.detail : '';
+      if (location.hash !== hash) history.replaceState(null, '', location.href.split('#')[0] + hash);
+      return;
+    }
     const want = '#/viaje/' + state.trip.id + (state.detail != null ? '/hito/' + state.detail : '');
     if (location.hash !== want) history.replaceState(null, '', want);
   }
@@ -2312,6 +2450,20 @@
         return 'Sesión ' + s.id + ': ' + r.reverted + ' cambios deshechos' + (bad.length ? '; sin deshacer: ' + bad.map((d) => (d.landmark || d.action) + ' (' + d.result + ')').join(', ') : '');
       });
     },
+    'adm-publish': (el) => {
+      const id = Number(el.dataset.id);
+      const input = document.querySelector('[data-pub-name="' + id + '"]');
+      adminDo(async () => {
+        await admin.post('/publicaciones/' + id, input ? { project: input.value.trim() } : {});
+        return input ? 'Publicando: la primera vez tarda un par de minutos (prepara los PDF y crea la web).' : null;
+      });
+    },
+    'adm-pub-auto': (el) => adminDo(async () => { await admin.patch('/publicaciones/' + el.dataset.id, { auto: el.checked }); return null; }),
+    'adm-unpublish': (el) => {
+      const t = (state.admin.pubs.items || []).find((x) => x.trip_id === Number(el.dataset.id));
+      if (!t || !confirm('¿Retirar la web de «' + t.trip_name + '»?\nSe borra de Cloudflare y el enlace deja de funcionar. Se puede volver a publicar cuando quieras.')) return;
+      adminDo(async () => { await admin.del('/publicaciones/' + t.trip_id); return 'Web de «' + t.trip_name + '» retirada.'; });
+    },
     'adm-backup-now': () => adminDo(async () => { const r = await admin.post('/backups'); return 'Copia creada: ' + r.created; }),
     'adm-restore': (el) => {
       const name = el.dataset.name;
@@ -2442,10 +2594,17 @@
     'cancel-add-image': () => { state.addingImage = false; renderDetail(); },
     'close-detail': () => closeDetail(),
     'copy-link': async (el) => {
-      const url = location.origin + location.pathname + '#/viaje/' + state.trip.id + '/hito/' + el.dataset.id;
+      const url = location.href.split('#')[0] + (STANDALONE ? '#/hito/' : '#/viaje/' + state.trip.id + '/hito/') + el.dataset.id;
+      const label = el.textContent;
+      if (READONLY && navigator.share) {          // en el móvil: la hoja de compartir (WhatsApp…)
+        const lm = state.landmarks.find((x) => x.id === Number(el.dataset.id));
+        try { await navigator.share({ title: lm ? lm.architect + ' — ' + lm.name : state.trip.name, url }); } catch (e) { /* cancelado */ }
+        return;
+      }
       try { await navigator.clipboard.writeText(url); el.textContent = 'copiado ✓'; } catch (e) { prompt('Enlace a esta ficha', url); }
-      setTimeout(() => { el.textContent = 'enlace'; }, 2000);
+      setTimeout(() => { el.textContent = label; }, 2000);
     },
+    'go-today': () => goToday(),
     'detail-prev': () => detailMove(-1),
     'detail-next': () => detailMove(1),
     'show-img': (el) => { state.detailImg = Number(el.dataset.i); renderDetail(); },
@@ -2584,7 +2743,12 @@
 
   // ------------------------------------------------------------ routing
   function route() {
-    if (STANDALONE) { loadTrip(null); return; }
+    if (STANDALONE) {
+      const h = location.hash.match(/^#\/hito\/(\d+)/);
+      if (state.screen !== 'trip') loadTrip(null, false, h ? Number(h[1]) : null);
+      else if (h) openDetail(Number(h[1])); else if (state.detail != null) closeDetail();
+      return;
+    }
     const m = location.hash.match(/^#\/viaje\/(\d+)(?:\/hito\/(\d+))?/);
     const n = location.hash.match(/^#\/nuevo(?:\/(ia|manual))?/);
     if (m) {
