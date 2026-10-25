@@ -82,6 +82,30 @@ PUBLIC_STATUSES = ("curado", "posible")
 PUBLISHED_PDFS = (("itinerario.pdf", "⬇ Itinerario (PDF)"), ("itinerario-fotos.pdf", "⬇ Itinerario con fotos (PDF)"))
 
 
+# La nota de un hito lleva la cocina del curado: el ranking propio («A · », «S++ [R] · »), la
+# lista final («★ S (tu lista final): …»), el precurado que luego se corrigió a mano y la fecha en
+# que se añadió. Para un alumno eso sobra —y «Precurado: descartado» en algo que sí se visita
+# despista—, pero la frase que viene detrás es justo lo que hay que leer, así que se quita la marca
+# y se deja el texto. De los paseos se van las etiquetas técnicas del geojson; la atribución, no.
+_GRADO = re.compile(r"^[SABC][+\-−/SABC]*(?: si [^·\[]{1,40})?(?:\s*\[[A-Z]\])?(?:\s*·\s*|\s*$)")
+_ESTRELLA = re.compile(r"^★\s.*?\(tu lista final\):\s*")
+_FUERA = re.compile(r"^(?:▸\s*Precurado|source_quality:|geometry_status:|direction:)")
+_SELLO = re.compile(r"^▸\s*(?:Añadido|Itinerario)\s+\d{4}-\d{2}-\d{2}\.?\s*")
+
+
+def public_notes(text):
+    out = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or _FUERA.match(line):
+            continue
+        line = _SELLO.sub("", line)
+        line = _ESTRELLA.sub("", line) if line.startswith("★") else _GRADO.sub("", line)
+        if line.strip():
+            out.append(line.strip())
+    return "\n".join(out)
+
+
 def student_payload(payload):
     """El viaje recortado a lo que se publica. Se quita aquí y no solo en pantalla: lo que va en
     el archivo lo puede leer cualquiera con «ver código fuente»."""
@@ -90,7 +114,9 @@ def student_payload(payload):
     landmarks = []
     for lm in payload["landmarks"]:
         if lm["status"] in PUBLIC_STATUSES or (lm["id"] in in_days and lm["status"] != "descartado"):
-            landmarks.append({k: v for k, v in lm.items() if k not in ("org_status", "org_notes", "name_key")})
+            lm = {k: v for k, v in lm.items() if k not in ("org_status", "org_notes", "name_key")}
+            lm["notes"] = public_notes(lm.get("notes"))
+            landmarks.append(lm)
     keep = {lm["id"] for lm in landmarks}
     days = [dict(d, items=[it for it in d.get("items") or [] if it["kind"] != "hito" or it.get("landmark_id") in keep])
             for d in payload.get("days") or []]

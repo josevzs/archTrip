@@ -46,6 +46,35 @@ def test_the_student_copy_leaves_out_the_kitchen(client):
     assert data["days"][0]["notes"] == "Hotel Infante Sagres"
 
 
+NOTA = ("A/B [E] · Shinjuku. Tipologías de arquitectura mascota.\n"
+        "★ S++ (tu lista final): Para ti, el número uno del viaje\n"
+        "▸ Precurado v2: descartado — obra secundaria para este grupo")
+
+
+def test_the_student_copy_drops_the_curation_marks_but_keeps_the_text(client):
+    """El ranking propio, la lista final y el precurado son cocina; la frase que va detrás, no."""
+    tid, (a, b, c) = seed(client)
+    client.patch(f"/api/landmarks/{a['id']}", json={"notes": NOTA})
+    client.patch(f"/api/landmarks/{b['id']}", json={"notes": "▸ Añadido 2026-09-28. Acceso parcial"})
+    data = embedded(client.get(f"/api/trips/{tid}/export/html?alumnos=1").data.decode("utf-8"))
+    primero, segundo = data["landmarks"]
+    assert primero["notes"] == ("Shinjuku. Tipologías de arquitectura mascota.\n"
+                                "Para ti, el número uno del viaje")
+    assert segundo["notes"] == "Acceso parcial"
+    assert "Precurado" not in json.dumps(data, ensure_ascii=False)
+    # y en la base de datos sigue entera
+    assert client.get(f"/api/trips/{tid}").get_json()["landmarks"][0]["notes"] == NOTA
+
+
+def test_a_grade_is_not_eaten_from_a_normal_note(client):
+    from archtrip.export import public_notes
+    assert public_notes("Casa de fin de semana, Gunma") == "Casa de fin de semana, Gunma"
+    assert public_notes("A 30 min en coche de Nasushiobara") == "A 30 min en coche de Nasushiobara"
+    assert public_notes("B") == ""
+    assert public_notes("A+ si permiten visita [R] · Catorce villas") == "Catorce villas"
+    assert public_notes("source_quality: draft\nattribution: © OpenStreetMap") == "attribution: © OpenStreetMap"
+
+
 def test_a_pending_landmark_goes_out_only_if_it_is_in_a_day(client):
     tid, (a, b, c) = seed(client)
     client.patch(f"/api/landmarks/{b['id']}", json={"status": "pendiente"})

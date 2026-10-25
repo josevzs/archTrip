@@ -802,12 +802,32 @@
     return 'clamp(26px, ' + vw.toFixed(2) + 'vw, 120px)';
   }
 
+  // titleSize solo mira el ancho: no sabe en cuántas líneas va a partir el nombre, y si no cabe en
+  // el alto de la pieza el flex lo comprime y queda cortado por abajo. Ya pintado se mide y se baja.
+  function fitTitle() {
+    const box = document.querySelector('.mosaic .ttl'), h1 = box && box.querySelector('h1');
+    if (!h1) return;
+    const cs = getComputedStyle(box), gap = parseFloat(cs.rowGap) || 0;
+    h1.style.flexShrink = '0';     // si se deja encoger, su alto sigue al texto y nunca "cabe"
+    let hueco = box.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    for (const el of box.children) if (el !== h1) hueco -= el.offsetHeight + gap;
+    let px = parseFloat(getComputedStyle(h1).fontSize);
+    for (let i = 0; i < 40 && px > 16 && h1.offsetHeight > hueco; i++) {
+      px *= 0.94;
+      h1.style.fontSize = px.toFixed(1) + 'px';
+    }
+  }
+
   function landingStart() {
     const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (!reduce) landing.timer = setInterval(landingSwap, 3200);
+    fitTitle();
     landing.resize = () => {          // otro ancho, otra rejilla: se recompone (solo si cambia)
       clearTimeout(landing.resizing);
-      landing.resizing = setTimeout(() => { if (state.screen === 'landing' && landingGrid().cols !== landing.cols) render(); }, 250);
+      landing.resizing = setTimeout(() => {
+        if (state.screen !== 'landing') return;
+        if (landingGrid().cols !== landing.cols) render(); else fitTitle();   // otro alto: solo reajusta
+      }, 250);
     };
     window.addEventListener('resize', landing.resize);
   }
