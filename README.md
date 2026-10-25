@@ -280,8 +280,13 @@ el archivo, no solo de la pantalla, así que tampoco está en el código fuente.
 fuera lo mismo que la web.
 
 **Para los alumnos**:
-- **Hoy**: durante el viaje, la web se abre directamente en el itinerario, en el día de hoy, que va
-  resaltado (*HOY*); antes del viaje, el aviso de arriba cuenta los días que faltan.
+- **Portada**: un mosaico a pantalla completa con las fotos del viaje en piezas de tamaños raros,
+  alguna con el nombre de un arquitecto, el título (fechas, ruta, cuántas obras) y un único botón,
+  **Mapa**. Se recompone en cada visita y, mientras se mira, alguna foto se cambia por otra (salvo
+  con «reducir movimiento» activado en el sistema). Los enlaces a una ficha entran directos, sin
+  portada, y desde dentro «← portada» vuelve a ella.
+- **Hoy**: el día de hoy va resaltado (*HOY*) en el itinerario; la portada y el aviso de arriba
+  dicen qué día del viaje es o, antes de salir, cuántos días faltan.
 - **Dónde estoy**: el botón ◎ del mapa enseña tu posición (el punto azul) y la va siguiendo; se
   apaga al volver a pulsarlo o al salir del mapa. El navegador pide permiso la primera vez.
 - **Enlace a cada ficha**: cada ficha tiene su dirección (`…/#/hito/<n>`); el botón *compartir* abre
