@@ -5,6 +5,7 @@ ya confirmada. Los dos PDF de antes (día a día y con fotos) no deben enterarse
 import io
 import re
 
+import pytest
 from pypdf import PdfReader
 
 from conftest import LANDMARK_HEADER, LANDMARK_ROWS, ROUTE_HEADER, ROUTE_ROWS, make_xlsx, upload
@@ -17,6 +18,11 @@ def pdf_text(data):
     comprueba aquí — una nota partida en dos líneas hacía fallar la prueba solo en Linux."""
     crudo = "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(data)).pages)
     return re.sub(r"\s+", " ", crudo)
+
+
+def imagenes(data):
+    """Cuántas fotos lleva incrustadas el PDF."""
+    return sum(len(page.images) for page in PdfReader(io.BytesIO(data)).pages)
 
 
 def seed(client):
@@ -125,6 +131,56 @@ def test_a_landmark_with_an_open_matter_but_no_day_still_shows_up(client, fake_g
     text = pdf_text(client.get(f"/api/trips/{tid}/export/organizacion").data)
     assert "SIN DIA ASIGNADO" in text.upper().replace("Í", "I")
     assert suelto["name"][:10] in text
+
+
+@pytest.fixture
+def foto_falsa(monkeypatch):
+    """Una foto de 60×40 en memoria: ni se baja nada ni se toca la caché de disco."""
+    from PIL import Image as PILImage
+
+    from archtrip import export
+
+    buf = io.BytesIO()
+    PILImage.new("RGB", (60, 40), (120, 140, 160)).save(buf, "JPEG")
+    monkeypatch.setattr(export, "photo_bytes", lambda url, cache=None: buf.getvalue() if url else None)
+    return buf.getvalue()
+
+
+def con_foto(client, lm_id, url):
+    return client.post(f"/api/landmarks/{lm_id}/images", json={"url": url})
+
+
+def test_the_organisation_pdf_can_carry_the_photos(client, fake_geo, foto_falsa):
+    """Como el PDF con fotos del itinerario: por teléfono ayuda a saber de qué edificio se habla."""
+    tid = seed(client)
+    day, lm = planned(client, tid)
+    client.patch(f"/api/landmarks/{lm['id']}", json={"org_status": "contestar"})
+    con_foto(client, lm["id"], "https://ejemplo.test/foto.jpg")
+
+    sin = client.get(f"/api/trips/{tid}/export/organizacion")
+    con = client.get(f"/api/trips/{tid}/export/organizacion?fotos=1")
+    assert con.status_code == 200 and con.mimetype == "application/pdf"
+    assert "organizacion-fotos" in con.headers["Content-Disposition"]
+    assert "organizacion-fotos" not in sin.headers["Content-Disposition"]
+    # el mismo documento, con la foto incrustada además
+    for r in (sin, con):
+        assert "CONTESTAR" in pdf_text(r.data).upper()
+    assert imagenes(con.data) == 1 and imagenes(sin.data) == 0
+
+
+def test_the_photo_queue_knows_which_document_it_is_for(client, fake_geo, foto_falsa):
+    """El de organización lleva también los hitos con gestión abierta y sin día: alguna foto más."""
+    tid = seed(client)
+    day, lm = planned(client, tid)
+    suelto = trip(client, tid)["landmarks"][1]
+    client.patch(f"/api/landmarks/{suelto['id']}", json={"org_status": "por_contactar"})
+    for x in (lm, suelto):
+        con_foto(client, x["id"], f"https://ejemplo.test/{x['id']}.jpg")
+
+    itin = client.post(f"/api/trips/{tid}/export/itinerario/fotos/next", json={}).get_json()
+    orga = client.post(f"/api/trips/{tid}/export/itinerario/fotos/next",
+                       json={"doc": "organizacion"}).get_json()
+    assert orga["total"] == itin["total"] + 1
 
 
 def test_the_other_two_pdfs_do_not_change(client, fake_geo):

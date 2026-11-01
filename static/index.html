@@ -604,7 +604,7 @@
     patchItem: (id, fields) => call('PATCH', '/api/items/' + id, fields),
     deleteItem: (id) => call('DELETE', '/api/items/' + id),
     orderItems: (dayId, ids) => call('PUT', '/api/days/' + dayId + '/items/order', { ids }),
-    photoNext: (tripId) => call('POST', '/api/trips/' + tripId + '/export/itinerario/fotos/next'),
+    photoNext: (tripId, doc) => call('POST', '/api/trips/' + tripId + '/export/itinerario/fotos/next', { doc: doc }),
     discover: (tripId, body) => call('POST', '/api/trips/' + tripId + '/discover', body || {}),
     discoverImport: (tripId, items) => call('POST', '/api/trips/' + tripId + '/discover/import', { items }),
   };
@@ -1477,13 +1477,14 @@
       + '<div class="bar"><i style="width:' + pct + '%"></i></div></div>';
   }
 
-  async function downloadPhotoPdf() {
+  // doc: 'itinerario' (el de siempre) u 'organizacion' (el de gestión, que lleva alguna foto más)
+  async function downloadPhotoPdf(doc) {
     if (state.pdf) return;
     state.pdf = { done: 0, total: 0, phase: 'fotos', cancel: false };
     renderList();
     try {
       for (let i = 0; i < 2000; i++) {
-        const r = await store.photoNext(state.trip.id);
+        const r = await store.photoNext(state.trip.id, doc);
         if (state.pdf.cancel) { state.pdf = null; renderList(); return; }
         state.pdf.total = r.total;
         state.pdf.done = r.total - r.remaining;
@@ -1492,14 +1493,14 @@
       }
       state.pdf.phase = 'pdf';
       renderList();
-      const res = await fetch('/api/trips/' + state.trip.id + '/export/itinerario?fotos=1');
+      const res = await fetch('/api/trips/' + state.trip.id + '/export/' + doc + '?fotos=1');
       if (!res.ok) throw new Error('El servidor no ha podido generar el PDF (' + res.status + ')');
       const blob = await res.blob();
       if (state.pdf.cancel) { state.pdf = null; renderList(); return; }
       const name = (res.headers.get('Content-Disposition') || '').match(/filename=([^;]+)/);
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = name ? name[1].trim() : 'itinerario-fotos.pdf';
+      a.download = name ? name[1].trim() : doc + '-fotos.pdf';
       document.body.appendChild(a); a.click();
       setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
       state.pdf = null;
@@ -1668,7 +1669,8 @@
     const bar = STANDALONE ? ''
       : '<div class="itinbar"><button data-action="day-add">＋ Añadir día</button>'
         + '<a class="btn quiet" href="/api/trips/' + state.trip.id + '/export/itinerario" download title="Un PDF día a día, listo para imprimir o mandar">⬇ PDF día a día</a>'
-        + '<a class="btn quiet" href="/api/trips/' + state.trip.id + '/export/organizacion" download title="Sin fotos: el estado de cada gestión y el historial de actualizaciones, para llamar y dar seguimiento">⬇ PDF de organización</a>'
+        + '<button class="quiet" data-action="pdf-organizacion" title="El estado de cada gestión y el historial de actualizaciones, con la foto de cada hito, para llamar y dar seguimiento. La primera vez tarda: hay que descargar cada foto."'
+        + (state.pdf ? ' disabled' : '') + '>⬇ PDF de organización</button>'
         + '<button class="quiet" data-action="pdf-fotos" title="El mismo itinerario con la foto de cada hito. La primera vez tarda: hay que descargar cada foto."'
         + (state.pdf ? ' disabled' : '') + '>⬇ PDF con fotos</button></div>'
         + pdfProgressView()
@@ -2608,7 +2610,8 @@
       }, 0);
     }),
     'item-delete': (el) => dayDo(async () => { applyDay(await store.deleteItem(Number(el.dataset.id))); }),
-    'pdf-fotos': () => downloadPhotoPdf(),
+    'pdf-fotos': () => downloadPhotoPdf('itinerario'),
+    'pdf-organizacion': () => downloadPhotoPdf('organizacion'),
     'disc-run': () => runDiscover(),
     'disc-import': () => importChosen(),
     'disc-hours': (el) => { const d = discoverState(); d[el.dataset.field] = Math.max(0, Math.min(6, Number(el.value) || 0)); },

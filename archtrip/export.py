@@ -407,6 +407,12 @@ ORG_TAG = {
 }
 
 
+def _lm_photo(lm):
+    """Con qué foto sale un hito en los PDF: la primera de verdad y, si no tiene, la del Excel."""
+    photos = [im for im in lm.get("images", []) if im.get("kind") == "foto"]
+    return photos[0].get("thumb") if photos else lm.get("url_image1")
+
+
 def itinerary_rows(payload):
     """El itinerario listo para pintar (y fácil de comprobar en los tests). Cada elemento:
     {'time','line','meta','status','confirm','photo'} y, para el PDF de organización,
@@ -447,11 +453,9 @@ def itinerary_rows(payload):
                 bits.append(f"{approx}{round(minutes)} min en coche desde {stop['city']}")
             if lm.get("notes"):
                 bits.append(lm["notes"])
-            photos = [im for im in lm.get("images", []) if im.get("kind") == "foto"]
             rows.append(dict(row, line=f"{lm['architect'].upper()} — {lm['name']}", meta=" · ".join(bits),
                              status=lm.get("status"), org=lm.get("org_status"),
-                             org_notes=list(lm.get("org_notes") or []),
-                             photo=(photos[0].get("thumb") if photos else lm.get("url_image1"))))
+                             org_notes=list(lm.get("org_notes") or []), photo=_lm_photo(lm)))
         out.append({"head": head,
                     "base": day.get("stop_city") or (stops.get(day.get("stop_id")) or {}).get("city") or "",
                     "notes": day.get("notes") or "", "items": rows})
@@ -539,6 +543,15 @@ def itinerary_photo_urls(payload):
             if row["photo"] and row["photo"] not in urls:
                 urls.append(row["photo"])
     return urls
+
+
+def organisation_photo_urls(payload):
+    """Las del PDF de organización: las del itinerario más las de los hitos con gestión abierta
+    que todavía no están en ningún día (esos no salen en `itinerary_photo_urls`)."""
+    days, sueltos = organisation_rows(payload)
+    urls = [row["photo"] for day in days for row in day["items"] if row["photo"]]
+    urls += [_lm_photo(lm) for lm in sueltos if _lm_photo(lm)]
+    return list(dict.fromkeys(urls))
 
 
 def _pdf_thumb(raw, box_px=420):
@@ -736,9 +749,10 @@ def _org_cell(org, notes, styles, clean):
     return out or [Paragraph("", styles["meta"])]
 
 
-def organisation_pdf(payload):
-    """-> (pdf_bytes, filename). Para organizar las visitas: sin fotos, con el estado de cada
-    gestión y todas las notas con su fecha."""
+def organisation_pdf(payload, gallery=False):
+    """-> (pdf_bytes, filename). Para organizar las visitas: el estado de cada gestión y todas las
+    notas con su fecha. `gallery=True` añade la foto de cada hito, igual que el PDF con fotos del
+    itinerario — por teléfono ayuda a saber de qué edificio se está hablando."""
     trip = payload["trip"]
     font, unicode_ok = _mono_font()
     clean = (lambda t: t) if unicode_ok else _latin1
@@ -756,6 +770,7 @@ def organisation_pdf(payload):
         "empty": ParagraphStyle("e", fontName=font, fontSize=8.5, leading=11, textColor=colors.HexColor("#999999")),
     }
     days, sueltos = organisation_rows(payload)
+    photos = {}                     # cada foto se baja una sola vez por documento
     dated = [d["date"] for d in (payload.get("days") or []) if d.get("date")]
     span = ""
     if dated:
@@ -771,8 +786,13 @@ def organisation_pdf(payload):
                        + (("<br/>" + " · ".join(legend)) if legend else ""), styles["sub"]),
              Spacer(1, 6 * mm)]
 
+    def foto(url):
+        """La celda de la foto; si no hay o no se puede bajar, una vacía para no descuadrar."""
+        return _photo_flowable(url, photos, 24 * mm, 40 * mm) or Paragraph("", styles["meta"])
+
     def tabla(filas):
-        table = Table(filas, colWidths=[14 * mm, None, 52 * mm], hAlign="LEFT")
+        anchos = [12 * mm, 26 * mm, None, 46 * mm] if gallery else [14 * mm, None, 52 * mm]
+        table = Table(filas, colWidths=anchos, hAlign="LEFT")
         table.setStyle(TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
@@ -802,14 +822,18 @@ def organisation_pdf(payload):
                 if marks:
                     cell.append(Paragraph(" · ".join(f'<font color="{col}">{_esc(clean(txt))}</font>'
                                                      for txt, col in marks), styles["tag"]))
-                data.append([Paragraph(_esc(clean(r["time"])), styles["time"]), cell,
-                             _org_cell(r.get("org"), r.get("org_notes") or [], styles, clean)])
+                fila = [Paragraph(_esc(clean(r["time"])), styles["time"])]
+                if gallery:
+                    fila.append(foto(r["photo"]))
+                fila += [cell, _org_cell(r.get("org"), r.get("org_notes") or [], styles, clean)]
+                data.append(fila)
             block.append(tabla(data))
         else:
             block.append(Paragraph(_esc(clean("sin nada planificado todavía")), styles["empty"]))
         block.append(Spacer(1, 5 * mm))
-        story.append(KeepTogether(block) if len(day["items"]) <= 8 else block[0])
-        if len(day["items"]) > 8:
+        limit = 4 if gallery else 8         # con fotos cada línea ocupa mucho más
+        story.append(KeepTogether(block) if len(day["items"]) <= limit else block[0])
+        if len(day["items"]) > limit:
             story.extend(block[1:])
 
     if sueltos:
@@ -822,8 +846,11 @@ def organisation_pdf(payload):
             cell = [Paragraph(_esc(clean(f"{(lm['architect'] or '').upper()} — {lm['name']}")), styles["item"])]
             bits = [lm.get("city"), str(lm["year"]) if lm.get("year") else None]
             cell.append(Paragraph(_esc(clean(" · ".join(b for b in bits if b))), styles["meta"]))
-            data.append([Paragraph("", styles["time"]), cell,
-                         _org_cell(lm.get("org_status"), lm.get("org_notes") or [], styles, clean)])
+            fila = [Paragraph("", styles["time"])]
+            if gallery:
+                fila.append(foto(_lm_photo(lm)))
+            fila += [cell, _org_cell(lm.get("org_status"), lm.get("org_notes") or [], styles, clean)]
+            data.append(fila)
         story.append(tabla(data))
 
     if not days and not sueltos:
@@ -837,7 +864,8 @@ def organisation_pdf(payload):
     _Numbered._archtrip_font = font
     _Numbered._archtrip_note = clean(f"Generado con el sistema archTrip el {today_long()}")
     doc.build(story, canvasmaker=_Numbered)
-    return buf.getvalue(), f"organizacion-{slugify(trip['name'])}.pdf"
+    suffix = "-fotos" if gallery else ""
+    return buf.getvalue(), f"organizacion{suffix}-{slugify(trip['name'])}.pdf"
 
 
 def _itinerary_note(payload):

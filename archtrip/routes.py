@@ -1064,12 +1064,12 @@ def export_itinerary(trip_id):
 
 @api.get("/trips/<int:trip_id>/export/organizacion")
 def export_organisation(trip_id):
-    """La misma estructura del itinerario pero para gestionar las visitas: sin fotos, con el
-    estado de organización de cada hito y todas sus notas con su fecha. Los otros dos PDF no
-    cambian."""
+    """La misma estructura del itinerario pero para gestionar las visitas: el estado de
+    organización de cada hito y todas sus notas con su fecha. `?fotos=1` añade la foto de cada uno
+    (hay que precargarlas como en el de itinerario). Los otros dos PDF no cambian."""
     db = get_db()
     trip = _trip_or_404(db, trip_id)
-    data, filename = export.organisation_pdf(_trip_payload(db, trip))
+    data, filename = export.organisation_pdf(_trip_payload(db, trip), gallery="fotos" in request.args)
     return send_file(io.BytesIO(data), mimetype="application/pdf",
                      as_attachment=True, download_name=filename)
 
@@ -1077,10 +1077,14 @@ def export_organisation(trip_id):
 @api.post("/trips/<int:trip_id>/export/itinerario/fotos/next")
 def itinerary_photo_next(trip_id):
     """Baja UNA foto del itinerario y dice cuántas quedan, para que el frontend pueda enseñar
-    una barra de progreso antes de pedir el PDF (que entonces sale al momento)."""
+    una barra de progreso antes de pedir el PDF (que entonces sale al momento).
+    `{doc: "organizacion"}` precarga las del PDF de organización, que lleva alguna más."""
     db = get_db()
     trip = _trip_or_404(db, trip_id)
-    urls = export.itinerary_photo_urls(_trip_payload(db, trip))
+    payload = _trip_payload(db, trip)
+    cual = (request.get_json(silent=True) or {}).get("doc")
+    urls = (export.organisation_photo_urls(payload) if cual == "organizacion"
+            else export.itinerary_photo_urls(payload))
     pending = [u for u in urls if not export.photo_cached(u)]
     if not pending:
         return jsonify({"done": True, "remaining": 0, "total": len(urls), "url": None})
