@@ -198,6 +198,7 @@ MIGRATIONS = [
     ("landmark_images", "author", "TEXT"),
     ("landmark_images", "submission_id", "TEXT"),
     ("landmark_images", "approved", "INTEGER NOT NULL DEFAULT 1"),
+    ("inbox_photos", "tg_message_id", "INTEGER"),   # el mensaje de Telegram con sus botones (telegram.py)
 ]
 
 # Índices sobre columnas que llegan por MIGRATIONS: en una base vieja no existen hasta después.

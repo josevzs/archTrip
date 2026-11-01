@@ -380,6 +380,40 @@ borra. Si la obra ya no existe o la foto no se puede abrir, el original se guard
 apuntado en la tabla `inbox_photos` como `sin_obra` o `ilegible`, que es el registro de todo lo
 recogido, se haya publicado o no.
 
+### Aprobar desde Telegram
+
+Cada foto recogida le llega al profesor por Telegram con el nombre del alumno, la obra, el día del
+itinerario y tres botones:
+
+- **Publicar**: la aprueba. Sale en la web de los alumnos en la siguiente publicación (si la web
+  tiene «actualizar sola», en unos minutos).
+- **Rechazar**: la quita de la obra y borra sus copias reducidas. **El original se queda** en
+  `data/fotos-alumnos/`: rechazar no borra el archivo.
+- **Cambiar obra**: enseña las obras del día en que se hizo la foto (por la fecha del EXIF o, si no
+  la trae, la de subida; si ese día no está en el itinerario, las de los días de la obra que tenía) y
+  la mueve a la que se elija. Sirve también para las que llegaron sin obra.
+
+Además, el bot avisa cuando el buzón llega a 5 GB, cuando la recogida lleva más de una hora
+fallando (y cuando vuelve a funcionar), y manda un resumen al final del día: «Hoy: 34 fotos de 11
+alumnos, 3 sin aprobar». En la app, una foto pendiente se ve en su ficha con la marca *sin aprobar*.
+
+Telegram se consulta con *long polling*: panda pregunta y Telegram contesta, así que tampoco aquí
+recibe conexiones. Para ponerlo en marcha:
+
+1. En Telegram, habla con **@BotFather**, `/newbot`, y apunta el token que te da.
+2. Escribe cualquier cosa a tu bot nuevo y abre
+   `https://api.telegram.org/bot<TOKEN>/getUpdates` en el navegador: el número que sale en
+   `"chat":{"id":…}` es tu chat. (Hazlo antes de arrancar panda con el token: después, las
+   lecturas se las lleva el bot.)
+3. En el `.env` de panda:
+   ```
+   ARCHTRIP_TELEGRAM_TOKEN=<el token>
+   ARCHTRIP_TELEGRAM_CHAT=<el número del chat>
+   ARCHTRIP_TELEGRAM_TZ=Asia/Tokyo      # opcional: la zona del resumen diario; sin ella, la del servidor
+   ```
+   `ARCHTRIP_TELEGRAM_HORA` cambia la hora del resumen (22 de serie). Sin token o sin chat, el bot
+   no arranca y no dice nada. Solo atiende los botones que llegan de ese chat.
+
 Las copias de seguridad (`scripts/backup.sh`) llevan los originales a una sola carpeta espejo,
 `data/backups/fotos-alumnos/`, y no a cada copia: no cambian nunca, pueden ser gigas, y siete copias
 de lo mismo solo llenarían el disco.
@@ -431,7 +465,8 @@ node --test buzon/prueba.mjs      # el buzón (Node 22; sin red ni dependencias)
   (Nominatim/OSRM), `images.py` (Wikidata/Commons), `enrich.py` (un paso de trabajo por
   llamada), `export.py` (HTML autónomo y ZIP Obsidian), `routes.py` (API `/api/*`),
   `audit.py` (sesiones y diario de cambios), `admin.py` (API `/api/admin/*`: deshacer, copias,
-  publicar), `publish.py` (la web de los alumnos en Cloudflare Pages y su hilo de fondo).
+  publicar), `publish.py` (la web de los alumnos en Cloudflare Pages y su hilo de fondo),
+  `inbox.py` (recoger las fotos del buzón) y `telegram.py` (el bot que las aprueba).
   El itinerario son dos tablas (`trip_days`, `day_items`) y su API `/api/days/*` y `/api/items/*`.
 - `static/index.html` — todo el frontend (CSS y JS inline, sin build). El mismo archivo es
   la base del export HTML: el servidor solo le inyecta los datos en `<!--ARCHTRIP_DATA-->`.

@@ -32,6 +32,8 @@ def create_app(db_path=None):
     publish.start_worker(app)          # sube a Cloudflare los viajes publicados (admin → Publicar)
     from . import inbox
     inbox.start_worker(app)            # recoge las fotos de los alumnos del buzón (si está configurado)
+    from . import telegram
+    telegram.start_worker(app)         # el bot del profesor: aprobar fotos y avisos (si está configurado)
 
     @app.after_request
     def _session_cookie(resp):

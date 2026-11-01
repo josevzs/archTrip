@@ -2318,6 +2318,7 @@
     const stage = cur ? '<img src="' + attr(cur.url) + '" alt="" onerror="this.onerror=null;this.src=\'' + attr(cur.thumb) + '\'">'
       : '<div class="muted">' + (lm.images_status === 'pendiente' && !STANDALONE ? '⏳ buscando fotos y planos…' : 'sin fotos — ') + (cur ? '' : '<a href="' + attr(imagesUrl(lm)) + '" target="_blank" rel="noopener">buscar imágenes</a>') + '</div>';
     const caption = cur ? esc(niceTitle(cur.title)) + (cur.page_url && !cur.manual && cur.source !== 'manual' ? ' · <a href="' + attr(cur.page_url) + '" target="_blank" rel="noopener">ver en Commons</a>' : '')
+      + (cur.approved === 0 ? ' · <span class="warn" title="Foto de un alumno: no sale en la web de los alumnos hasta que se apruebe en Telegram">sin aprobar</span>' : '')
       + (cur.id == null || READONLY ? '' : ' · <button class="link" data-action="set-kind" data-id="' + lm.id + '" data-img="' + cur.id + '" data-kind="' + (cur.kind === 'foto' ? 'plano' : 'foto') + '">' + (cur.kind === 'foto' ? 'es un plano' : 'es una foto') + '</button>'
         + ' · <button class="link" data-action="delete-image" data-id="' + lm.id + '" data-img="' + cur.id + '">quitar esta imagen</button>') : '';
     box.innerHTML = '<div class="detail" id="detail">'

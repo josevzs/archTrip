@@ -17,3 +17,7 @@ services:
       # el buzón de fotos de los alumnos (buzon/README.md): dónde está y su llave (BUZON_SECRET)
       - ARCHTRIP_INBOX_URL=${ARCHTRIP_INBOX_URL:-}
       - ARCHTRIP_INBOX_SECRET=${ARCHTRIP_INBOX_SECRET:-}
+      # el bot de Telegram del profesor: aprobar las fotos de los alumnos y los avisos (README)
+      - ARCHTRIP_TELEGRAM_TOKEN=${ARCHTRIP_TELEGRAM_TOKEN:-}
+      - ARCHTRIP_TELEGRAM_CHAT=${ARCHTRIP_TELEGRAM_CHAT:-}
+      - ARCHTRIP_TELEGRAM_TZ=${ARCHTRIP_TELEGRAM_TZ:-}
