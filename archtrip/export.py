@@ -125,6 +125,10 @@ def student_payload(payload):
         if lm["status"] in PUBLIC_STATUSES or (lm["id"] in in_days and lm["status"] != "descartado"):
             lm = {k: v for k, v in lm.items() if k not in ("org_status", "org_notes", "name_key")}
             lm["notes"] = public_notes(lm.get("notes"))
+            # las fotos de los alumnos que el profesor aún no ha aprobado, fuera: el archivo
+            # publicado se lee entero con «ver código fuente»
+            lm["images"] = [{k: v for k, v in im.items() if k != "submission_id"}
+                            for im in lm.get("images", []) if im.get("approved", 1)]
             landmarks.append(lm)
     keep = {lm["id"] for lm in landmarks}
     days = [dict(d, items=[it for it in d.get("items") or [] if it["kind"] != "hito" or it.get("landmark_id") in keep])

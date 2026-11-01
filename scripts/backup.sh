@@ -3,6 +3,9 @@
 #   - archtrip database (consistent copy via SQLite's backup API), content-hashed so a run
 #     without changes stores nothing;
 #   - uploaded photos (data/uploads) and a standalone HTML copy of every trip;
+#   - the students' original photos (data/fotos-alumnos) go to one mirror, data/backups/fotos-alumnos,
+#     never into the snapshots: they never change, there may be gigabytes, and seven copies of
+#     them would only fill the disk. Files already in the mirror are not copied again;
 #   - keeps the newest KEEP distinct snapshots (default 7); files are prefixed "auto-",
 #     manual backups in the same folder are never touched.
 # Run it from cron twice a day, e.g.:  0 3,15 * * * /srv/apps/archtrip/scripts/backup.sh >> /srv/apps/archtrip/data/backups/backup.log 2>&1
@@ -10,6 +13,21 @@ set -euo pipefail
 APP="$(cd "$(dirname "$0")/.." && pwd)"
 DATA="$APP/data"; OUT="$DATA/backups"; KEEP="${KEEP:-7}"; PORT="${ARCHTRIP_PORT:-8000}"
 mkdir -p "$OUT"
+# antes de mirar si la base ha cambiado: un original no se queda sin copia por una pasada sin cambios
+if [ -d "$DATA/fotos-alumnos" ]; then
+  python3 - "$DATA/fotos-alumnos" "$OUT/fotos-alumnos" <<'PY'
+import shutil, sys
+from pathlib import Path
+src, dst = Path(sys.argv[1]), Path(sys.argv[2])
+dst.mkdir(parents=True, exist_ok=True)
+new = [f for f in src.iterdir() if f.is_file() and not f.name.endswith(".parcial") and not (dst / f.name).exists()]
+for f in new:
+    shutil.copy2(f, dst / (f.name + ".parcial"))
+    (dst / (f.name + ".parcial")).rename(dst / f.name)
+if new:
+    print(f"{len(new)} fotos de alumnos nuevas en la copia")
+PY
+fi
 [ -f "$DATA/archtrip.db" ] || { echo "$(date '+%F %R') no hay base de datos en $DATA"; exit 0; }
 stamp=$(date +%Y%m%d-%H%M)
 tmp="$OUT/.auto-$stamp.db"

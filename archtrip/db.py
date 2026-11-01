@@ -105,6 +105,28 @@ CREATE TABLE IF NOT EXISTS org_notes (
 );
 CREATE INDEX IF NOT EXISTS idx_org_notes ON org_notes (landmark_id, id);
 
+-- Cada foto que un alumno subió al buzón y panda recogió (ver inbox.py). Es el registro del
+-- archivo: dónde quedó el original, de quién es y en qué acabó. Sobrevive a que se rechace (la
+-- fila de landmark_images se borra, el original y esta fila no) y evita recoger dos veces lo mismo.
+CREATE TABLE IF NOT EXISTS inbox_photos (
+    id            TEXT PRIMARY KEY,                -- el id del envío en el buzón
+    trip_id       INTEGER REFERENCES trips(id) ON DELETE SET NULL,
+    landmark_id   INTEGER REFERENCES landmarks(id) ON DELETE SET NULL,
+    landmark_name TEXT,                            -- como la vio el alumno al subirla
+    image_id      INTEGER,                         -- su fila en landmark_images, mientras exista
+    author        TEXT NOT NULL,
+    original      TEXT NOT NULL,                   -- data/fotos-alumnos/<id>.<ext>, intacto
+    bytes         INTEGER NOT NULL,
+    mime          TEXT,
+    taken_at      TEXT,                            -- del EXIF
+    lat           REAL,
+    lon           REAL,
+    sent_at       TEXT,                            -- cuándo la subió el alumno
+    collected_at  TEXT NOT NULL,
+    state         TEXT NOT NULL DEFAULT 'pendiente', -- pendiente | publicada | rechazada | sin_obra | ilegible
+    decided_at    TEXT
+);
+
 -- La versión de consulta de un viaje publicada en Cloudflare Pages (ver publish.py).
 CREATE TABLE IF NOT EXISTS publications (
     trip_id      INTEGER PRIMARY KEY REFERENCES trips(id) ON DELETE CASCADE,
@@ -171,6 +193,17 @@ MIGRATIONS = [
     ("landmarks", "kind", "TEXT NOT NULL DEFAULT 'hito'"),
     ("landmarks", "geometry", "TEXT"),              # GeoJSON (LineString | MultiLineString)
     ("landmarks", "length_m", "REAL"),
+    # las fotos de los alumnos (inbox.py): firmadas, atadas a su envío y sin publicar hasta que el
+    # profesor las aprueba; todo lo que ya había queda aprobado
+    ("landmark_images", "author", "TEXT"),
+    ("landmark_images", "submission_id", "TEXT"),
+    ("landmark_images", "approved", "INTEGER NOT NULL DEFAULT 1"),
+]
+
+# Índices sobre columnas que llegan por MIGRATIONS: en una base vieja no existen hasta después.
+LATE_INDEXES = [
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_images_submission ON landmark_images (submission_id) "
+    "WHERE submission_id IS NOT NULL",
 ]
 
 
@@ -205,6 +238,8 @@ def init_db():
         have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
         if column not in have:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    for sql in LATE_INDEXES:
+        conn.execute(sql)
     conn.commit()
 
 

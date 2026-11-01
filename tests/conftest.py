@@ -7,6 +7,7 @@ from openpyxl import Workbook
 from archtrip import create_app
 
 os.environ["ARCHTRIP_PUBLISH_WORKER"] = "0"     # los tests llaman a publish.run_once a mano
+os.environ["ARCHTRIP_INBOX_WORKER"] = "0"       # y a inbox.run_once
 
 
 @pytest.fixture

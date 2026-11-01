@@ -201,10 +201,11 @@ def copy_trip(trip_id):
             [new_trip, stop_map.get(lm["nearest_stop_id"])] + [lm[c] for c in lm_cols]).lastrowid
         for im in rows(db.execute("SELECT * FROM landmark_images WHERE landmark_id = ? ORDER BY position, id",
                                   (lm["id"],))):
-            db.execute("INSERT INTO landmark_images (landmark_id, kind, url, thumb, title, page_url, source, position) "
-                       "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            # la firma y la aprobación viajan con la foto; el envío del buzón no, que es de la original
+            db.execute("INSERT INTO landmark_images (landmark_id, kind, url, thumb, title, page_url, source, position, "
+                       "author, approved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                        (lm_map[lm["id"]], im["kind"], im["url"], im["thumb"], im["title"], im["page_url"],
-                        im["source"], im["position"]))
+                        im["source"], im["position"], im["author"], im["approved"]))
     for d in rows(db.execute("SELECT * FROM trip_days WHERE trip_id = ? ORDER BY position, id", (trip_id,))):
         day_map[d["id"]] = db.execute(
             "INSERT INTO trip_days (trip_id, date, position, stop_id, title, notes) VALUES (?, ?, ?, ?, ?, ?)",
@@ -621,7 +622,7 @@ def refresh_images(lm_id):
     """Drop the fetched images and queue a new search (the enrich loop does the work)."""
     db = get_db()
     lm = _landmark_or_404(db, lm_id)
-    db.execute("DELETE FROM landmark_images WHERE landmark_id = ? AND source != 'manual'", (lm_id,))
+    db.execute("DELETE FROM landmark_images WHERE landmark_id = ? AND source NOT IN ('manual', 'alumno')", (lm_id,))
     db.execute("UPDATE landmarks SET images_status = 'pendiente' WHERE id = ?", (lm_id,))
     audit.log(db, "refresh_images", lm["trip_id"], lm_id, lm["name"])
     db.commit()

@@ -180,8 +180,10 @@ def _insert_landmark(db, snap, keep_id=True):
 
 
 def _insert_image(db, im):
-    cols = ["landmark_id", "kind", "url", "thumb", "title", "page_url", "source", "position"]
+    cols = ["landmark_id", "kind", "url", "thumb", "title", "page_url", "source", "position",
+            "author", "submission_id", "approved"]
     vals = [im.get(c) for c in cols]
+    vals[-1] = 1 if vals[-1] is None else vals[-1]      # instantáneas de antes de las fotos de alumnos
     if im.get("id") and _free_id(db, "landmark_images", im["id"]):
         db.execute(f"INSERT INTO landmark_images (id, {', '.join(cols)}) VALUES (?, {', '.join('?' * len(cols))})", [im["id"]] + vals)
     else:

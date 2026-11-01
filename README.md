@@ -350,6 +350,40 @@ Worker de Cloudflare aparte (carpeta `buzon/`), con un cubo R2 y una base D1: gu
 que panda pasa a recogerlo y lo borra. **Panda nunca recibe conexiones**: es ella la que sale a
 buscar. Qué hace, qué comprueba y cómo se despliega, en [`buzon/README.md`](buzon/README.md).
 
+### La recogida (panda)
+
+Con estas dos variables en el `.env` junto a `docker-compose.yml`, un hilo de fondo
+(`archtrip/inbox.py`) pasa por el buzón cada minuto:
+
+```
+ARCHTRIP_INBOX_URL=https://archtrip-buzon.<cuenta>.workers.dev
+ARCHTRIP_INBOX_SECRET=<el BUZON_SECRET del Worker>
+```
+
+Sin ellas no arranca y no molesta. `ARCHTRIP_INBOX_EVERY` cambia el intervalo (en segundos, 60 de
+serie). En cada pasada:
+
+- **Deja en el buzón la lista de obras** de cada viaje publicado: las mismas que se ven en su web,
+  con el día del itinerario en que salen. El formulario de cada viaje es
+  `<ARCHTRIP_INBOX_URL>/<nombre de la web>` (p. ej. `…/japon-2026`) y existe desde esa primera pasada.
+- **Recoge cada foto nueva**: guarda el **original intacto** en `data/fotos-alumnos/<id>.<ext>`
+  (no se vuelve a tocar: es el archivo), hace las dos copias reducidas de siempre en
+  `data/uploads/` y la añade a su obra **firmada y sin aprobar**. Al final de la lista de fotos, para
+  que no pase a ser la principal.
+- **Avisa al buzón** de lo que ya tiene, y solo entonces el buzón la borra. Si algo falla a mitad
+  (una descarga cortada, panda sin red), esa foto no se da por recogida y se vuelve a intentar en la
+  siguiente pasada; nunca se duplica.
+
+Una foto sin aprobar **no sale en la web de los alumnos** (se quita al generar el archivo, como el
+resto de la cocina), pero en la app del profesor sí se ve, firmada. «Buscar fotos otra vez» no la
+borra. Si la obra ya no existe o la foto no se puede abrir, el original se guarda igual y queda
+apuntado en la tabla `inbox_photos` como `sin_obra` o `ilegible`, que es el registro de todo lo
+recogido, se haya publicado o no.
+
+Las copias de seguridad (`scripts/backup.sh`) llevan los originales a una sola carpeta espejo,
+`data/backups/fotos-alumnos/`, y no a cada copia: no cambian nunca, pueden ser gigas, y siete copias
+de lo mismo solo llenarían el disco.
+
 ## Copias de seguridad
 
 `scripts/backup.sh` guarda en `data/backups/` una instantánea consistente de la base de datos

@@ -121,7 +121,7 @@ def _route_landmark(db, lm, stops):
 
 def _fetch_images(db, lm):
     found = images.fetch_images(lm["name"], lm["city"], lm["lat"], lm["lon"])
-    db.execute("DELETE FROM landmark_images WHERE landmark_id = ? AND source != 'manual'", (lm["id"],))
+    db.execute("DELETE FROM landmark_images WHERE landmark_id = ? AND source NOT IN ('manual', 'alumno')", (lm["id"],))
     db.executemany(
         "INSERT INTO landmark_images (landmark_id, kind, url, thumb, title, page_url, source, position) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

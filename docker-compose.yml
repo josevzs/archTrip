@@ -14,3 +14,6 @@ services:
       # en un archivo .env junto a este, que no entra en git (ver el README)
       - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
       - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
+      # el buzón de fotos de los alumnos (buzon/README.md): dónde está y su llave (BUZON_SECRET)
+      - ARCHTRIP_INBOX_URL=${ARCHTRIP_INBOX_URL:-}
+      - ARCHTRIP_INBOX_SECRET=${ARCHTRIP_INBOX_SECRET:-}
