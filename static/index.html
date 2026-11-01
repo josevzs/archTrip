@@ -353,7 +353,8 @@
   .mosaic .ttl h1 { font-size: clamp(34px, 7.4vw, 120px); line-height: .88; letter-spacing: -1px; margin: 0; color: #f4f4f0; overflow-wrap: anywhere; }
   .mosaic .ttl .r { font-size: clamp(12px, 1.25vw, 16px); text-transform: uppercase; letter-spacing: 1px; }
   .mosaic .ttl .m { font-size: 12px; color: #9a9a92; }
-  .mosaic .ttl .w { font-size: 13px; color: #0b0b0b; background: #f4f4f0; align-self: flex-start; padding: 2px 8px; }
+  .mosaic .ttl .w { font-size: 13px; color: #0b0b0b; background: #f4f4f0; align-self: flex-start; padding: 2px 8px;
+                    cursor: pointer; user-select: none; }
   .mosaic a.go { background: #f4f4f0; color: #0b0b0b; text-decoration: none; display: flex; align-items: flex-end; justify-content: space-between;
                  padding: clamp(12px, 1.8vw, 24px); font-size: clamp(26px, 4vw, 64px); font-weight: bold; letter-spacing: -1px; line-height: 1;
                  transition: background .2s, color .2s; }
@@ -363,8 +364,34 @@
   .landing .lcred { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 6px 10px; font-size: 11px; color: #8a8a84; }
   .landing .lcred a { color: #8a8a84; display: inline-flex; }
   .landing .lcred .brand { letter-spacing: 1px; text-transform: uppercase; }
+  .mosaic .ttl { cursor: default; }
+  /* Pegatinas: aparecen sobre el mosaico cuando se insiste con la cuenta atrás. */
+  .landing .stk { position: absolute; z-index: 2; pointer-events: none; user-select: none;
+                  font-size: clamp(34px, 6vw, 78px); line-height: 1; animation: stkin .45s both;
+                  filter: drop-shadow(0 2px 7px rgba(0, 0, 0, .55)); }
+  @keyframes stkin { from { opacity: 0; transform: scale(.35) rotate(var(--rot, 0deg)); }
+                     to { opacity: 1; transform: scale(1) rotate(var(--rot, 0deg)); } }
+  /* Cianotipo: cinco toques seguidos en el título y la web entera se vuelve plano de obra. Solo
+     cambia el color (y se queda guardado en el navegador de quien lo descubre): ningún dato se
+     toca, y la barra de créditos sigue a la vista. */
+  body.cianotipo { --ink: #dfecff; --muted: #86aedd; --line: #3f6ea8; --bg: #0a2342; --soft: #123a66;
+                   --ok: #7fd4a4; --maybe: #e0bd5c; --bad: #7f93ab; --warn: #ff8f84; }
+  body.cianotipo .landing { background: #0a2342; color: #dfecff; }
+  body.cianotipo .mosaic .ph, body.cianotipo .mosaic .ttl { background: #0a2342; }
+  body.cianotipo .mosaic .tx { background: #0a2342; color: #dfecff; border-color: #3f6ea8; }
+  body.cianotipo .mosaic .tx.inv, body.cianotipo .mosaic .ttl .w,
+  body.cianotipo .mosaic a.go { background: #dfecff; color: #0a2342; }
+  body.cianotipo .mosaic .ttl h1 { color: #dfecff; }
+  body.cianotipo .mosaic .ttl .k, body.cianotipo .mosaic .ttl .m,
+  body.cianotipo .landing .lcred, body.cianotipo .landing .lcred a { color: #86aedd; }
+  body.cianotipo .mosaic .ph img { filter: grayscale(1) invert(1) sepia(1) hue-rotate(168deg) saturate(4.5) brightness(.95); }
+  body.cianotipo img { filter: grayscale(1) sepia(1) hue-rotate(168deg) saturate(3) brightness(.85) contrast(1.08); }
+  /* el mapa, al revés: fondo azul y trazado claro, que es como se lee un plano */
+  body.cianotipo .leaflet-tile { filter: grayscale(1) invert(.92) sepia(1) hue-rotate(168deg) saturate(3.2) brightness(.95); }
+  /* las fotos de los puntos van de fondo, no en un <img>: se tiñen aparte */
+  body.cianotipo .phico, body.cianotipo .phcluster { filter: grayscale(1) sepia(1) hue-rotate(168deg) saturate(3) brightness(.85); }
   @media (prefers-reduced-motion: reduce) {
-    .mosaic > *, .mosaic .ph img.in { animation: none; }
+    .mosaic > *, .mosaic .ph img.in, .landing .stk { animation: none; }
     .mosaic .ph img { transition: none; }
   }
   @media (max-width: 800px) {
@@ -464,6 +491,8 @@
   } catch (e) { /* no storage */ }
   let savedDayMode = '1';
   try { savedDayMode = localStorage.getItem('archtrip:dayMode') || '1'; } catch (e) { /* no storage */ }
+  // el cianotipo lo descubre cada alumno en su navegador y se le queda puesto hasta que lo quita
+  try { if (READONLY && localStorage.getItem('archtrip:cianotipo') === '1') document.body.classList.add('cianotipo'); } catch (e) { /* no storage */ }
   const state = {
     screen: 'trips', trips: [], trip: null, stops: [], landmarks: [], days: [], pending: null,
     publicView: false,      // true cuando se entra desde fuera (túnel): sin administración ni privados
@@ -684,7 +713,10 @@
   // Un mosaico a pantalla completa que se recompone en cada visita: piezas de tamaños raros con
   // las fotos del viaje (barajadas), alguna con el nombre de un arquitecto, el título y un solo
   // botón, al mapa. Mientras se mira, alguna foto se cambia por otra que no estaba.
-  const landing = { timer: null, pool: [], shown: new Set(), resize: null, cols: 0 };
+  const landing = { timer: null, pool: [], shown: new Set(), resize: null, cols: 0,
+                    whenIdx: 0, whenHits: 0, keys: null, motion: null, shake: 0, taps: 0, tapped: 0 };
+  // lo que cae sobre el mosaico cuando se insiste con la cuenta atrás
+  const STICKERS = ['🐐'];
   const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const pick = (a) => a[Math.floor(Math.random() * a.length)];
 
@@ -712,13 +744,34 @@
     return a.d + (a.m === b.m && a.y === b.y ? '' : ' ' + a.m + (a.y === b.y ? '' : ' ' + a.y)) + ' — ' + b.d + ' ' + b.m + ' ' + b.y;
   }
 
-  function landingWhen() {
+  // La cuenta atrás no dice una sola cosa: devuelve todas las maneras de contar lo mismo, y al
+  // pulsarla se va pasando de una a la siguiente (`egg-when`). La primera es la de siempre.
+  function landingWhens() {
+    const dias = state.days.length;
     const hoy = todayDay();
-    if (hoy) return 'Hoy · día ' + (state.days.indexOf(hoy) + 1) + (hoy.stop_city ? ' · ' + hoy.stop_city : '');
+    if (hoy) {
+      const n = state.days.indexOf(hoy) + 1;
+      const quedan = dias - n;
+      return ['Hoy · día ' + n + (hoy.stop_city ? ' · ' + hoy.stop_city : ''),
+              'Día ' + n + ' de ' + dias,
+              quedan > 1 ? 'Quedan ' + quedan + ' días' : quedan === 1 ? 'Mañana, el último' : 'Último día',
+              hoy.stop_city ? 'Se duerme en ' + hoy.stop_city : 'Ya estamos dentro'].filter(Boolean);
+    }
     const first = state.days.map((d) => d.date).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x || '')).sort()[0];
-    if (!first || todayIso() >= first) return '';
+    if (!first || todayIso() >= first) return [];
     const n = Math.round((Date.parse(first) - Date.parse(todayIso())) / 864e5);
-    return n === 1 ? 'Mañana empieza' : 'Faltan ' + n + ' días';
+    if (n === 1) return ['Mañana empieza', 'Mañana', 'Hoy se hace la maleta'];
+    const horas = Math.round((Date.parse(first) - Date.now()) / 36e5);
+    const destino = (state.stops[0] || {}).city;
+    return ['Faltan ' + n + ' días',
+            'Faltan ' + horas + ' horas',
+            'Faltan ' + Math.round((Date.parse(first) - Date.now()) / 6e4).toLocaleString('es-ES') + ' minutos',
+            destino ? 'Faltan ' + n + ' días para ' + destino : '',
+            'Quedan ' + n + ' noches aquí',
+            dias > 1 ? n + ' días de espera, ' + dias + ' de viaje' : ''].filter(Boolean);
+  }
+  function landingWhen() {
+    return landingWhens()[0] || '';
   }
 
   function tileImg(ph, big) {
@@ -744,12 +797,12 @@
     const when = landingWhen();
     const meta = [state.landmarks.length + ' obras', nArch + (nArch === 1 ? ' arquitecto' : ' arquitectos'),
                   state.days.length > 1 ? state.days.length + ' días' : ''].filter(Boolean).join(' · ');
-    const title = '<div class="ttl" style="' + titlePos + ';--d:0s">'
+    const title = '<div class="ttl" data-action="egg-cianotipo" style="' + titlePos + ';--d:0s">'
       + '<div class="k">' + esc(['Viaje de arquitectura', landingDates()].filter(Boolean).join(' · ')) + '</div>'
       + '<h1 style="font-size:' + titleSize(g) + '">' + esc(state.trip.name) + '</h1>'
       + (stops.length ? '<div class="r">' + esc(stops.join(' → ')) + '</div>' : '')
       + '<div class="m">' + esc(meta) + '</div>'
-      + (when ? '<div class="w">' + esc(when) + '</div>' : '') + '</div>';
+      + (when ? '<div class="w" data-action="egg-when">' + esc(when) + '</div>' : '') + '</div>';
     const go = '<a class="go" href="#/viaje" style="' + goPos + ';--d:.15s">Mapa <span>→</span></a>';
     // el resto: se recorre la rejilla y cada hueco libre se llena con una pieza al azar que quepa
     // (en el peor caso, una de 1×1), así que no queda ninguno vacío ni sobra nada fuera de vista
@@ -818,10 +871,65 @@
     }
   }
 
+  // ---- lo que no está escrito en ninguna parte
+  // Cinco toques seguidos en el título: plano de obra. Otros cinco, y vuelve.
+  function eggBlueprint() {
+    // se cuentan los toques a mano, y no con `detail`, porque en el móvil cada toque llega como
+    // un clic suelto: cinco en menos de medio segundo cada uno
+    const ahora = Date.now();
+    landing.taps = ahora - (landing.tapped || 0) < 600 ? (landing.taps || 0) + 1 : 1;
+    landing.tapped = ahora;
+    if (landing.taps < 5) return;
+    landing.taps = 0;
+    const on = document.body.classList.toggle('cianotipo');
+    try { localStorage.setItem('archtrip:cianotipo', on ? '1' : '0'); } catch (x) { /* ignore */ }
+  }
+
+  // La cuenta atrás va cambiando de rótulo; si se insiste, empieza a caer algo sobre el mosaico.
+  function eggWhen(el) {
+    const whens = landingWhens();
+    if (whens.length > 1) {
+      landing.whenIdx = (landing.whenIdx + 1) % whens.length;
+      el.textContent = whens[landing.whenIdx];
+    }
+    landing.whenHits++;
+    const box = document.querySelector('.landing');
+    if (landing.whenHits < 7 || !box || box.querySelectorAll('.stk').length >= 12) return;
+    const stk = document.createElement('span');
+    stk.className = 'stk';
+    stk.textContent = pick(STICKERS);
+    stk.style.setProperty('--rot', (Math.random() * 50 - 25).toFixed(1) + 'deg');
+    stk.style.left = (6 + Math.random() * 80).toFixed(1) + '%';
+    stk.style.top = (6 + Math.random() * 76).toFixed(1) + '%';
+    box.appendChild(stk);
+  }
+
   function landingStart() {
     const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (!reduce) landing.timer = setInterval(landingSwap, 3200);
     fitTitle();
+    // el mosaico se recompone al sacudir el teléfono, o con la R en el teclado
+    landing.keys = (e) => {
+      if (state.screen !== 'landing' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if (e.key === 'r' || e.key === 'R') { e.preventDefault(); render(); }
+    };
+    document.addEventListener('keydown', landing.keys);
+    landing.motion = (e) => {
+      const a = e.accelerationIncludingGravity;
+      if (!a || state.screen !== 'landing') return;
+      const fuerza = Math.abs(a.x || 0) + Math.abs(a.y || 0) + Math.abs(a.z || 0);
+      const antes = landing.shake || 0;
+      landing.shake = fuerza;
+      // un salto grande respecto a la medida anterior es una sacudida, no un giro; con una
+      // tregua para no recomponer dos veces por el mismo gesto
+      if (antes && Math.abs(fuerza - antes) > 22 && Date.now() - (landing.shaken || 0) > 1500) {
+        landing.shaken = Date.now();
+        render();
+      }
+    };
+    window.addEventListener('devicemotion', landing.motion);
     landing.resize = () => {          // otro ancho, otra rejilla: se recompone (solo si cambia)
       clearTimeout(landing.resizing);
       landing.resizing = setTimeout(() => {
@@ -834,7 +942,10 @@
   function landingStop() {
     clearInterval(landing.timer); landing.timer = null;
     if (landing.resize) window.removeEventListener('resize', landing.resize);
-    landing.resize = null;
+    if (landing.keys) document.removeEventListener('keydown', landing.keys);
+    if (landing.motion) window.removeEventListener('devicemotion', landing.motion);
+    landing.resize = landing.keys = landing.motion = null;
+    landing.shake = 0;
   }
 
   // Cambia una foto pequeña por otra del viaje que no estuviera a la vista.
@@ -2834,6 +2945,8 @@
     'detail-prev': () => detailMove(-1),
     'detail-next': () => detailMove(1),
     'show-img': (el) => { state.detailImg = Number(el.dataset.i); renderDetail(); },
+    'egg-cianotipo': () => eggBlueprint(),
+    'egg-when': (el) => eggWhen(el),
   };
 
   app.addEventListener('click', (e) => {
