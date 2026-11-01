@@ -12,6 +12,7 @@ de Docker (`ARCHTRIP_WRANGLER` cambia cómo se le llama). Un solo hilo por proce
 arranca gunicorn con un único worker, igual que necesita el limitador de Nominatim."""
 import hashlib
 import json
+import logging
 import os
 import re
 import shlex
@@ -24,7 +25,7 @@ from pathlib import Path
 
 import requests
 
-from . import export
+from . import export, uploads
 from .db import get_db, row, rows
 
 CF_API = "https://api.cloudflare.com/client/v4"
@@ -33,6 +34,7 @@ PROJECT_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,56}[a-z0-9])?$")
 
 _wake = threading.Event()
 _started = False
+log = logging.getLogger(__name__)
 
 
 class PublishError(Exception):
@@ -116,7 +118,12 @@ def withdraw(db, trip_id):
 def snapshot(db, trip):
     """-> (payload, alumnos, hash). El hash es de lo que se publica y de la app, no de la fecha de
     exportación: si nada de eso ha cambiado sale el mismo y no hay nada que subir. Es barato; los
-    PDF solo se hacen cuando toca subir."""
+    PDF solo se hacen cuando toca subir.
+
+    Las fotos subidas a mano también cuentan sin leerlas: cada subida se guarda con un nombre
+    nuevo (`/uploads/<hito>/<uuid>.jpg`, ver uploads.store_file) y esa ruta va en el payload, así
+    que una foto nueva, quitada o cambiada cambia el hash. Un archivo no se reescribe nunca con el
+    mismo nombre."""
     from .routes import _trip_payload
     payload = _trip_payload(db, trip)
     students = export.student_payload(payload)
@@ -137,6 +144,16 @@ def build_files(payload, students):
     big = [name for name, data in files.items() if len(data) > MAX_FILE]
     if big:
         raise PublishError(f"{', '.join(big)} pasa de 25 MiB y Cloudflare no lo admite")
+    # las fotos subidas a mano van al lado de la página, con la ruta que ella enlaza (uploads/…);
+    # una que falte en disco o que sea demasiado grande se queda fuera, pero no tumba el viaje
+    for path in export.upload_paths(students["landmarks"]):
+        data = uploads.read_file(path)
+        if data is None:
+            log.warning("publicación: falta %s en el disco; se publica sin ella", path)
+        elif len(data) > MAX_FILE:
+            log.warning("publicación: %s pasa de 25 MiB; se publica sin ella", path)
+        else:
+            files[path[1:]] = data
     return files
 
 

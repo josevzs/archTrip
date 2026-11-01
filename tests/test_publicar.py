@@ -271,3 +271,74 @@ def test_cloudflare_create_keeps_the_address_it_is_given(monkeypatch):
     assert publish.cloudflare_create("tohoku") == "https://tohoku-2b4.pages.dev"
     assert calls[0] == ("POST", "acc/pages/projects", {"name": "tohoku", "production_branch": "main"})
     assert calls[1][:2] == ("GET", "acc/pages/projects/tohoku")
+
+
+# ------------------------------------------------------------ fotos subidas a mano
+
+def _png(color="red"):
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (60, 40), color).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _hand_upload(client, lm_id, color="red"):
+    import io
+    r = client.post(f"/api/landmarks/{lm_id}/images", data={"file": (io.BytesIO(_png(color)), "mia.png"), "kind": "foto"},
+                    content_type="multipart/form-data")
+    assert r.status_code == 201
+    return next(im for im in r.get_json()["images"] if im["source"] == "manual")
+
+
+def _site(app, tid):
+    from archtrip.db import row
+    with app.app_context():
+        db = get_db()
+        trip = row(db.execute("SELECT * FROM trips WHERE id = ?", (tid,)))
+        payload, students, digest = publish.snapshot(db, trip)
+        return publish.build_files(payload, students), digest
+
+
+def test_a_photo_uploaded_by_hand_travels_next_to_the_page(app, client):
+    import pathlib
+    tid, (a, _, _) = seed(client)
+    im = _hand_upload(client, a["id"])
+    files, _ = _site(app, tid)
+    for key in ("url", "thumb"):
+        path = im[key][1:]                                   # uploads/<hito>/<uuid>.jpg
+        assert files[path] == (pathlib.Path(app.config["UPLOAD_DIR"]) / im[key][len("/uploads/"):]).read_bytes()
+    html = files["index.html"].decode("utf-8")
+    shown = [i for lm in embedded(html)["landmarks"] for i in lm["images"] if i["source"] == "manual"]
+    assert shown[0]["url"] == im["url"][1:] and "data:image/jpeg;base64," not in html   # enlazada, no incrustada
+    # el PDF con fotos sigue encontrándola: la copia de la página no le cambia la ruta
+    from pypdf import PdfReader
+    import io
+    pages = PdfReader(io.BytesIO(files["itinerario-fotos.pdf"])).pages
+    assert sum(len(p.images) for p in pages) >= 1
+
+
+def test_a_missing_upload_does_not_sink_the_trip(app, client):
+    import pathlib
+    tid, (a, _, _) = seed(client)
+    im = _hand_upload(client, a["id"])
+    (pathlib.Path(app.config["UPLOAD_DIR"]) / im["thumb"][len("/uploads/"):]).unlink()
+    files, _ = _site(app, tid)
+    assert im["url"][1:] in files and im["thumb"][1:] not in files and "index.html" in files
+
+
+def test_a_new_upload_changes_what_is_published(app, client):
+    tid, (a, _, _) = seed(client)
+    _, before = _site(app, tid)
+    _hand_upload(client, a["id"], "blue")
+    _, after = _site(app, tid)
+    assert before != after
+
+
+def test_the_downloaded_copy_still_carries_the_upload_inside(client):
+    tid, (a, _, _) = seed(client)
+    _hand_upload(client, a["id"])
+    html = client.get(f"/api/trips/{tid}/export/html").data.decode("utf-8")
+    assert "data:image/jpeg;base64," in html
+    html = client.get(f"/api/trips/{tid}/export/html?alumnos=1").data.decode("utf-8")
+    assert '"uploads/' in html and "data:image/jpeg;base64," not in html

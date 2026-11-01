@@ -596,6 +596,9 @@
   const q = (s) => encodeURIComponent(s);
   // only ever link to http(s): a stray javascript: URL in an Excel cell must not become clickable
   const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u.trim())) ? u.trim() : null;
+  // una imagen que se puede pintar: de internet, incrustada (copia descargada) o subida a mano y
+  // publicada al lado de la página (uploads/…, en la web de los alumnos)
+  const pictureUrl = (u) => safeUrl(u) || (/^(data:image\/|uploads\/)/.test(u || '') ? u : null);
   // El título de una imagen es su crédito; cuando viene de un buscador es un identificador
   // («images?q=tbn:ANd9…»), que debajo de la foto solo hace ruido.
   const niceTitle = (t) => (!t || /^images\?|^[^ ]{28,}$/.test(t)) ? '' : t;
@@ -841,7 +844,7 @@
   function landingPhotos() {
     const out = [];
     state.landmarks.forEach((lm) => photosOf(lm).slice(0, 2).forEach((p, i) => {
-      if (safeUrl(p.thumb) || /^data:image\//.test(p.thumb || '')) out.push({ lm, thumb: p.thumb, big: p.url || p.thumb, first: i === 0 });
+      if (pictureUrl(p.thumb)) out.push({ lm, thumb: p.thumb, big: p.url || p.thumb, first: i === 0 });
     }));
     return shuffle(out);
   }
@@ -888,7 +891,7 @@
   function tileImg(ph, big) {
     landing.shown.add(ph.thumb);
     return '<figure class="ph" data-lm="' + ph.lm.id + '"' + (big ? ' data-big="1"' : '') + '>'
-      + '<img src="' + attr(big && safeUrl(ph.big) ? ph.big : ph.thumb) + '" alt="" decoding="async" onerror="this.parentNode.classList.add(\'gone\')">'
+      + '<img src="' + attr(big && pictureUrl(ph.big) ? ph.big : ph.thumb) + '" alt="" decoding="async" onerror="this.parentNode.classList.add(\'gone\')">'
       + '<figcaption><b>' + esc(ph.lm.architect) + '</b>' + esc(ph.lm.name) + '</figcaption></figure>';
   }
 

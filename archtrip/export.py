@@ -52,15 +52,24 @@ def standalone_html(payload, alumnos=False, pdfs=False):
     file works from file:// with no server; the page persists edits in
     localStorage and can re-export itself ("Guardar copia").
 
-    `alumnos=True` is the read-only copy that scripts/publicar.sh puts on the web: trimmed by
+    `alumnos=True` is the read-only copy that publish.py puts on the web: trimmed by
     `student_payload`, with no editing at all, and with a proper title and link preview.
-    `pdfs=True` adds buttons to the PDFs that the script publishes next to it."""
+    `pdfs=True` adds buttons to the PDFs that publish.py uploads next to it.
+
+    Las fotos subidas a mano: la copia que se descarga las lleva dentro (se abre con doble clic,
+    sin servidor); la de los alumnos las enlaza como `uploads/…` y publish.py sube esos archivos
+    al lado, porque cientos de fotos incrustadas no caben en un HTML de 25 MiB."""
     template = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     data = student_payload(payload) if alumnos else dict(payload)
     data["exported_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     if alumnos:
         data["readonly"] = {"pdfs": [{"file": f, "label": label} for f, label in PUBLISHED_PDFS] if pdfs else []}
-    _inline_uploads(data["landmarks"])
+    # copias: el payload lo siguen usando los PDF, que leen las subidas por su ruta /uploads/…
+    data["landmarks"] = [dict(lm, images=[dict(im) for im in lm.get("images", [])]) for lm in data["landmarks"]]
+    if alumnos:
+        _relative_uploads(data["landmarks"])
+    else:
+        _inline_uploads(data["landmarks"])
     # never let the JSON close the script tag early
     blob = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
     script = f'<script id="archtrip-data">window.__ARCHTRIP__ = {blob};</script>'
@@ -146,6 +155,28 @@ def _public_head(data):
     if image:
         tags.append(f'<meta property="og:image" content="{esc(image)}">')
     return "\n".join(tags)
+
+
+def upload_paths(landmarks):
+    """Las rutas `/uploads/…` que usan las imágenes de estos hitos, sin repetir."""
+    paths = []
+    for lm in landmarks:
+        for im in lm.get("images", []):
+            for key in ("url", "thumb"):
+                u = im.get(key) or ""
+                if u.startswith("/uploads/") and u not in paths:
+                    paths.append(u)
+    return paths
+
+
+def _relative_uploads(landmarks):
+    """`/uploads/12/ab.jpg` → `uploads/12/ab.jpg`: en la web publicada la página está en la raíz y
+    el archivo, a su lado (publish.build_files lo sube con esa misma ruta)."""
+    for lm in landmarks:
+        for im in lm.get("images", []):
+            for key in ("url", "thumb"):
+                if (im.get(key) or "").startswith("/uploads/"):
+                    im[key] = im[key][1:]
 
 
 def _inline_uploads(landmarks):

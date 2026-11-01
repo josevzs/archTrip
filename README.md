@@ -270,6 +270,10 @@ probar la herramienta con volumen real: subirlos a un viaje nuevo y dejar que lo
 Una **versión de consulta** del viaje en una web gratuita (Cloudflare Pages), que se pone al día sola
 desde la instancia de casa. Es la copia HTML autónoma en modo solo lectura: mapa, fotos, arquitectos,
 lista, fichas e itinerario, con un botón para cada PDF del itinerario (día a día y con fotos).
+Las fotos subidas a mano se publican como archivos al lado de la página (`uploads/…`), no dentro
+del HTML: así caben cientos sin pasar del límite de 25 MB por archivo de Cloudflare. Una que falte
+en el disco o que pase de ese tamaño se queda fuera con un aviso en el registro, sin parar la
+publicación del resto.
 
 **Qué no sale**: nada se puede curar, editar ni borrar; no están los hitos **descartados** ni los que
 siguen **pendientes** (salvo que ya estén metidos en un día, y entonces salen como *por decidir*), y
