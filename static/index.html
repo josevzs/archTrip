@@ -394,6 +394,71 @@
     .mosaic > *, .mosaic .ph img.in, .landing .stk { animation: none; }
     .mosaic .ph img { transition: none; }
   }
+  /* ---- la copia de los alumnos: barra fija, menú y mapa a pantalla completa ----
+     Es la versión que se consulta por la calle y con una mano, así que de la pantalla solo se
+     queda arriba el título; lo demás (vistas, filtros, buscador, ruta, papeles y la letra
+     pequeña) vive en un menú. En pantalla ancha ese mismo menú se estira en una fila. */
+  body.alumnos { padding: 58px 24px 40px; }
+  .appbar { position: fixed; top: 0; left: 0; right: 0; z-index: 20; display: flex; align-items: center;
+            gap: 10px; padding: 8px 12px; background: rgba(255, 255, 255, .94); border-bottom: 1px solid var(--line);
+            backdrop-filter: blur(6px); }
+  .appbar h1 { flex: 1 1 auto; margin: 0; font-size: 16px; line-height: 1.15; letter-spacing: -.5px;
+               white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .appbar .volver { text-decoration: none; font-size: 19px; line-height: 1; opacity: .7; padding: 2px 4px; }
+  .appbar .ham { border: 1px solid currentColor; background: none; color: inherit; padding: 5px 9px;
+                 font-size: 15px; line-height: 1; }
+  /* en el mapa, la barra flota encima: el plano ocupa la pantalla entera */
+  body.mapa-lleno .appbar { background: rgba(17, 17, 17, .78); color: #f4f4f0; border-bottom: 0; }
+  body.mapa-lleno .appbar a { color: inherit; }
+  body.mapa-lleno #map { position: fixed; inset: 0; height: auto; min-height: 0; border: 0; z-index: 1; }
+  body.mapa-lleno .leaflet-top { margin-top: 52px; }
+  body.mapa-lleno .leaflet-bottom { bottom: 26px; }
+  body.mapa-lleno #map-note { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; margin: 0;
+                              gap: 10px; padding: 4px 8px; font-size: 11px; white-space: nowrap;
+                              overflow-x: auto; flex-wrap: nowrap; background: rgba(255, 255, 255, .93);
+                              scrollbar-width: none; }
+  body.mapa-lleno #map-note::-webkit-scrollbar { display: none; }
+  .menu .mt { display: none; }
+  .menu .pdfs { display: flex; gap: 8px; }
+  .menu .pie { font-size: 11px; color: var(--muted); line-height: 1.7; }
+  .menu .pie .lcred { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+  .menu .pie .lcred a { color: var(--muted); display: inline-flex; }
+  .menu .pie .lcred svg { width: 12px; height: 12px; }
+  @media (min-width: 640px) {       /* pantalla ancha: el menú, estirado en una fila */
+    .menu { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 14px 0 10px; }
+    .menu #search { flex: 1 1 220px; width: auto; }
+    .menu .views { margin-left: 0; }
+    .menu #route, .menu .pie { flex-basis: 100%; }
+    .appbar h1 { font-size: 18px; }
+    .appbar .ham { display: none; }      /* con sitio, el menú está siempre desplegado */
+  }
+  @media (max-width: 639px) {
+    body.alumnos { padding: 52px 14px 30px; }
+    .appbar h1 { font-size: 14px; text-transform: uppercase; transform: scaleX(.88);
+                 transform-origin: left center; }
+    .menu { display: none; position: fixed; left: 0; right: 0; top: 45px; bottom: 0; z-index: 19;
+            overflow: auto; background: var(--bg); padding: 4px 14px 24px; }
+    .menu.abierto { display: block; }
+    .menu .mt { display: block; font-size: 11px; letter-spacing: 2px; margin: 14px 0 6px; }
+    .menu .views { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .menu .views button { border: 1px solid var(--line); padding: 13px 10px; font-size: 15px; text-align: left; }
+    .menu .tabs { display: flex; gap: 6px; }
+    .menu .tabs button { flex: 1; padding: 9px 4px; font-size: 13px; }
+    .menu #search { width: 100%; padding: 10px; font-size: 15px; }
+    body.alumnos .group > h2:first-child, body.alumnos #list > :first-child h2 { margin-top: 10px; }
+    .menu .pdfs a { flex: 1; text-align: center; font-size: 12px; }
+    .menu .route { gap: 6px; }
+    .menu .route .card2 { width: auto; flex: 1; }
+    .menu .route .arrow { display: none; }
+    .menu .pie { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 8px; }
+    /* la ficha es lo que más se abre: los botones se salían por la derecha */
+    .detail { padding: 10px 14px; }
+    .dhead { gap: 6px 10px; }
+    .dnav { width: 100%; margin-left: 0; gap: 6px; }
+    .dnav button { flex: 1; padding: 8px 4px; font-size: 13px; }
+    .keys { display: none; }                        /* en un teléfono no hay teclas */
+    .caption:empty { display: none; }               /* sin crédito que enseñar, sin hueco */
+  }
   /* Portada en el móvil: el título manda menos y las fotos mandan más. El nombre va condensado
      (misma tipografía, estrechada) para que quepa en dos filas sin encogerse. */
   @media (max-width: 639px) {
@@ -531,6 +596,9 @@
   const q = (s) => encodeURIComponent(s);
   // only ever link to http(s): a stray javascript: URL in an Excel cell must not become clickable
   const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u.trim())) ? u.trim() : null;
+  // El título de una imagen es su crédito; cuando viene de un buscador es un identificador
+  // («images?q=tbn:ANd9…»), que debajo de la foto solo hace ruido.
+  const niceTitle = (t) => (!t || /^images\?|^[^ ]{28,}$/.test(t)) ? '' : t;
 
   function minutesText(m) {
     m = Math.round(m);
@@ -714,9 +782,37 @@
   if (STANDALONE) window.archtrip = { buildCopy: local.buildCopy };
 
   // --------------------------------------------------------- rendering
+  // ---- el menú de la copia de los alumnos (en el móvil tapa la pantalla; en ancha está siempre)
+  const menuEl = () => document.getElementById('menu');
+  function toggleMenu(open) {
+    const m = menuEl();
+    if (!m) return;
+    const abierto = open === undefined ? !m.classList.contains('abierto') : open;
+    m.classList.toggle('abierto', abierto);
+    const b = document.querySelector('.appbar .ham');
+    if (b) b.setAttribute('aria-expanded', abierto ? 'true' : 'false');
+    document.body.classList.toggle('locked', abierto);
+  }
+  const closeMenu = () => toggleMenu(false);
+
+  // El mapa de los alumnos se come la pantalla entera del móvil, con la barra flotando encima.
+  function fullMap() {
+    document.body.classList.toggle('mapa-lleno',
+      READONLY && state.screen === 'trip' && state.view === 'mapa' && window.innerWidth < 640);
+    // el mapa cambia de caja: si no se le avisa, Leaflet sigue pintando con el tamaño viejo
+    if (mapState.map && document.getElementById('map')) mapState.map.invalidateSize();
+  }
+  let fullMapTimer = null;
+  window.addEventListener('resize', () => {
+    if (!READONLY || state.screen !== 'trip') return;
+    clearTimeout(fullMapTimer);
+    fullMapTimer = setTimeout(fullMap, 200);
+  });
+
   function render() {
     landingStop();
     document.body.classList.toggle('landing-on', state.screen === 'landing');
+    document.body.classList.toggle('alumnos', READONLY && state.screen === 'trip');
     app.innerHTML = (state.screen === 'trips' ? tripsView() : state.screen === 'new' ? newTripView()
       : state.screen === 'admin' ? adminView() : state.screen === 'landing' ? landingView() : tripView()) + '<div id="overlay"></div>';
     if (state.screen === 'trip') { renderList(); renderDetail(); }
@@ -1048,23 +1144,43 @@
       + '</div>' + body;
   }
 
+  // La copia de los alumnos se consulta casi siempre en el móvil: barra fija con el título
+  // condensado y un menú que guarda todo lo demás (vistas, filtros, buscador, ruta, papeles y la
+  // letra pequeña). En una pantalla ancha ese mismo menú se despliega en una fila, como antes.
+  function studentView(t) {
+    const pdfs = window.__ARCHTRIP__.readonly.pdfs || [];
+    const credits = document.getElementById('credits');
+    const bar = '<header class="appbar"><a class="volver" href="#/" title="Portada" aria-label="Portada">←</a>'
+      + '<h1>' + esc(t.name) + '</h1>'
+      + '<button class="ham" data-action="menu" aria-label="Menú" aria-expanded="false">☰</button></header>';
+    const menu = '<div class="menu" id="menu">'
+      + '<h2 class="mt">Ver</h2><div class="views" id="views"></div>'
+      + '<h2 class="mt">Qué se enseña</h2><div class="tabs" id="tabs"></div>'
+      + '<h2 class="mt">Buscar</h2>'
+      + '<input type="text" id="search" class="grow" placeholder="buscar edificio, arquitecto o ciudad" value="' + attr(state.query) + '">'
+      + '<h2 class="mt">Ruta</h2><div id="route"></div>'
+      + (pdfs.length ? '<h2 class="mt">Papeles</h2><div class="pdfs">'
+         + pdfs.map((f) => '<a class="btn quiet" href="' + attr(f.file) + '" download>' + esc(f.label) + '</a>').join('') + '</div>' : '')
+      + '<div class="pie"><div>Los edificios <span style="color:' + COLORS.curado + '">fijos</span> están en el plan; los '
+      + '<span style="color:' + COLORS.posible + '">opcionales</span>, si da tiempo.</div>'
+      + (tripWhen() ? '<div>' + tripWhen() + '</div>' : '')
+      + '<div>Consulta actualizada el ' + esc(shortStamp(window.__ARCHTRIP__.exported_at)) + '.</div>'
+      + '<div class="lcred">' + (credits ? credits.innerHTML : '') + '</div></div></div>';
+    return bar + menu + '<div id="msg">' + msgView() + '</div><div id="progress"></div>'
+      + '<div id="daybar"></div><div id="list"></div>';
+  }
+
   function tripView() {
     const t = state.trip;
+    if (READONLY) return studentView(t);
     const head = '<div class="row">'
-      + (STANDALONE ? (READONLY ? '<a href="#/" class="muted">← portada</a>' : '') : '<a href="#/" class="muted">← Viajes</a>')
+      + (STANDALONE ? '' : '<a href="#/" class="muted">← Viajes</a>')
       + '<h1 class="grow" style="margin:0">' + esc(t.name) + '</h1>'
       + (STANDALONE ? '' : '<button class="link small" data-action="rename-trip">renombrar</button>')
       + '</div>';
 
     let toolbar;
-    if (READONLY) {
-      const pdfs = window.__ARCHTRIP__.readonly.pdfs || [];
-      toolbar = '<div class="banner small">Versión de consulta del viaje, actualizada el ' + esc(shortStamp(window.__ARCHTRIP__.exported_at)) + '. '
-        + 'Los edificios <span style="color:' + COLORS.curado + '">fijos</span> están en el plan; los '
-        + '<span style="color:' + COLORS.posible + '">opcionales</span>, si da tiempo.'
-        + (tripWhen() ? '<div style="margin-top:4px">' + tripWhen() + '</div>' : '') + '</div>'
-        + (pdfs.length ? '<div class="toolbar"><div class="group">' + pdfs.map((f) => '<a class="btn quiet" href="' + attr(f.file) + '" download>' + esc(f.label) + '</a>').join('') + '</div></div>' : '');
-    } else if (STANDALONE) {
+    if (STANDALONE) {
       toolbar = '<div class="banner small">Copia autónoma del viaje. Los cambios se guardan en este navegador; '
         + 'usa <b>Guardar copia</b> para llevártelos a otro sitio o compartirlos.</div>'
         + '<div class="toolbar"><div class="group"><button data-action="save-copy">Guardar copia</button></div></div>';
@@ -2163,6 +2279,7 @@
     if (controls) controls.classList.toggle('itin', state.view === 'itinerario' || state.view === 'descubrir');
     if (state.days.length && !activeDay()) setActiveDay(state.days[0].id);
     el('daybar').innerHTML = daybarView();
+    fullMap();
     if (state.view === 'mapa') renderMap();
     else {
       if (me.watch != null) stopLocate();          // fuera del mapa no hace falta gastar batería
@@ -2197,7 +2314,7 @@
       + (p.id != null && !READONLY ? ' draggable="true" data-img="' + p.id + '" title="Arrastra para reordenar"' : '') + ' onerror="this.style.display=\'none\'">').join('');
     const stage = cur ? '<img src="' + attr(cur.url) + '" alt="" onerror="this.onerror=null;this.src=\'' + attr(cur.thumb) + '\'">'
       : '<div class="muted">' + (lm.images_status === 'pendiente' && !STANDALONE ? '⏳ buscando fotos y planos…' : 'sin fotos — ') + (cur ? '' : '<a href="' + attr(imagesUrl(lm)) + '" target="_blank" rel="noopener">buscar imágenes</a>') + '</div>';
-    const caption = cur ? esc(cur.title || '') + (cur.page_url && !cur.manual && cur.source !== 'manual' ? ' · <a href="' + attr(cur.page_url) + '" target="_blank" rel="noopener">ver en Commons</a>' : '')
+    const caption = cur ? esc(niceTitle(cur.title)) + (cur.page_url && !cur.manual && cur.source !== 'manual' ? ' · <a href="' + attr(cur.page_url) + '" target="_blank" rel="noopener">ver en Commons</a>' : '')
       + (cur.id == null || READONLY ? '' : ' · <button class="link" data-action="set-kind" data-id="' + lm.id + '" data-img="' + cur.id + '" data-kind="' + (cur.kind === 'foto' ? 'plano' : 'foto') + '">' + (cur.kind === 'foto' ? 'es un plano' : 'es una foto') + '</button>'
         + ' · <button class="link" data-action="delete-image" data-id="' + lm.id + '" data-img="' + cur.id + '">quitar esta imagen</button>') : '';
     box.innerHTML = '<div class="detail" id="detail">'
@@ -2863,13 +2980,15 @@
       try { state.trip = await store.renameTrip(state.trip.id, name.trim()); render(); } catch (e) { fail(e); renderList(); }
     },
     'pick-file': (el) => { app.querySelector('input[data-upload="' + el.dataset.kind + '"]').click(); },
-    'filter': (el) => { state.filter = el.dataset.filter; renderList(); },
+    'filter': (el) => { state.filter = el.dataset.filter; closeMenu(); renderList(); },
     'fit-map': () => { mapState.fitted = false; renderMap(); },
     'view': (el) => {
       state.view = el.dataset.view;
       try { localStorage.setItem('archtrip:view', state.view); } catch (e) { /* ignore */ }
+      closeMenu();
       renderList();
     },
+    'menu': () => toggleMenu(),
     'set-status': (el) => setStatus(Number(el.dataset.id), el.dataset.status, false),
     'edit': (el) => { state.editing = Number(el.dataset.id); if (state.detail != null) renderDetail(); else { if (state.view !== 'lista') state.view = 'lista'; renderList(); } },
     'cancel-edit': () => { state.editing = null; renderList(); renderDetail(); },
@@ -2991,6 +3110,7 @@
 
   app.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
+    if (e.target.id === 'search') { e.preventDefault(); e.target.blur(); closeMenu(); return; }
     const input = e.target.closest('[data-org-note]');
     if (!input) return;
     e.preventDefault();
