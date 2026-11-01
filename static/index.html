@@ -394,6 +394,20 @@
     .mosaic > *, .mosaic .ph img.in, .landing .stk { animation: none; }
     .mosaic .ph img { transition: none; }
   }
+  /* Portada en el móvil: el título manda menos y las fotos mandan más. El nombre va condensado
+     (misma tipografía, estrechada) para que quepa en dos filas sin encogerse. */
+  @media (max-width: 639px) {
+    .mosaic .ttl { padding: 10px 12px; gap: 6px; }
+    .mosaic .ttl h1 { line-height: .8; letter-spacing: -2px; transform: scaleX(.9); transform-origin: left center; }
+    .mosaic .ttl .k { font-size: 10px; letter-spacing: 2px; }
+    .mosaic .ttl .r { font-size: 11px; letter-spacing: 0; }
+    .mosaic .ttl .m, .mosaic .ttl .w { font-size: 11px; }
+    .mosaic .ttl .w { padding: 1px 6px; }
+    .mosaic a.go { padding: 10px 12px; align-items: center; }   /* la banda es baja: va centrada */
+    .mosaic .ph figcaption { padding: 14px 6px 4px; font-size: 10px; }
+    .landing .lcred { font-size: 9px; gap: 2px 8px; padding: 3px 8px; }
+    .landing .lcred svg { width: 11px; height: 11px; }
+  }
   @media (max-width: 800px) {
     body { padding: 14px 16px 50px; }
     .lm { flex-direction: column-reverse; }
@@ -722,7 +736,8 @@
 
   function landingGrid() {
     const w = window.innerWidth, h = window.innerHeight;
-    if (w < 640) return { cols: 4, rows: h < 640 ? 6 : 8, title: [4, 3], go: [4, 1] };
+    // en el móvil el título ocupa dos filas, no tres: las fotos mandan
+    if (w < 640) return { cols: 4, rows: h < 640 ? 6 : 8, title: [4, 2], go: [4, 1] };
     if (w < 1000) return { cols: 6, rows: 6, title: [4, 2], go: [2, 1] };
     return { cols: w > 1500 ? 10 : 8, rows: h < 700 ? 4 : 5, title: [4, 2], go: [2, 1] };
   }
@@ -798,7 +813,8 @@
     const meta = [state.landmarks.length + ' obras', nArch + (nArch === 1 ? ' arquitecto' : ' arquitectos'),
                   state.days.length > 1 ? state.days.length + ' días' : ''].filter(Boolean).join(' · ');
     const title = '<div class="ttl" data-action="egg-cianotipo" style="' + titlePos + ';--d:0s">'
-      + '<div class="k">' + esc(['Viaje de arquitectura', landingDates()].filter(Boolean).join(' · ')) + '</div>'
+      // en el móvil, solo las fechas: «Viaje de arquitectura» se comía una línea entera
+      + '<div class="k">' + esc((g.cols === 4 ? [landingDates()] : ['Viaje de arquitectura', landingDates()]).filter(Boolean).join(' · ')) + '</div>'
       + '<h1 style="font-size:' + titleSize(g) + '">' + esc(state.trip.name) + '</h1>'
       + (stops.length ? '<div class="r">' + esc(stops.join(' → ')) + '</div>' : '')
       + '<div class="m">' + esc(meta) + '</div>'
@@ -816,7 +832,10 @@
       for (let r = r0; r < r0 + h; r++) for (let c = c0; c < c0 + w; c++) if (occ[r][c]) return false;
       return true;
     };
-    const shapes = g.cols === 4 ? [[1, 1], [1, 1], [2, 1], [1, 2], [2, 2]] : [[1, 1], [1, 1], [2, 1], [1, 2], [2, 2], [2, 2], [3, 2]];
+    // en el móvil, piezas más grandes (hasta una banda de lado a lado): con la pantalla estrecha,
+    // muchas piezas pequeñas no se leen como fotos sino como confeti
+    const shapes = g.cols === 4 ? [[1, 1], [2, 1], [2, 1], [1, 2], [2, 2], [2, 2], [3, 2]]
+                                : [[1, 1], [1, 1], [2, 1], [1, 2], [2, 2], [2, 2], [3, 2]];
     const cellW = window.innerWidth / g.cols;
     const tiles = [];
     let pi = 0, ni = 0;
@@ -851,7 +870,9 @@
   function titleSize(g) {
     const longest = Math.max(6, ...state.trip.name.split(/\s+/).map((w) => w.length));
     const width = g.title[0] / g.cols * 100;                 // ancho de la pieza, en vw
-    const vw = Math.min(g.cols === 4 ? 13 : 7.4, width * 0.82 / (0.6 * longest));
+    // en el móvil el título va condensado (scaleX .9), así que cada letra ocupa menos y cabe más
+    const letra = g.cols === 4 ? 0.54 : 0.6;
+    const vw = Math.min(g.cols === 4 ? 15 : 7.4, width * (g.cols === 4 ? 0.86 : 0.82) / (letra * longest));
     return 'clamp(26px, ' + vw.toFixed(2) + 'vw, 120px)';
   }
 
