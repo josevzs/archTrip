@@ -288,7 +288,10 @@ fuera lo mismo que la web.
   alguna con el nombre de un arquitecto, el título (fechas, ruta, cuántas obras) y un único botón,
   **Mapa**. Se recompone en cada visita y, mientras se mira, alguna foto se cambia por otra (salvo
   con «reducir movimiento» activado en el sistema). Los enlaces a una ficha entran directos, sin
-  portada, y desde dentro «← portada» vuelve a ella.
+  portada, y desde dentro «← portada» vuelve a ella. **Las fotos de los alumnos van primero** (las
+  aprobadas: ver *El buzón de fotos de los alumnos*), repartidas obra a obra para que ninguna se quede
+  con la portada, y cada una lleva en pequeño el nombre de quien la hizo; las de archivo rellenan lo
+  que falte. Al cambiar una foto por otra, nunca se sustituye una de alumno por una de archivo.
 - **Hoy**: el día de hoy va resaltado (*HOY*) en el itinerario; la portada y el aviso de arriba
   dicen qué día del viaje es o, antes de salir, cuántos días faltan.
 - **Dónde estoy**: el botón ◎ del mapa enseña tu posición (el punto azul) y la va siguiendo; se

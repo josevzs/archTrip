@@ -343,6 +343,10 @@
                            background: linear-gradient(transparent, rgba(0,0,0,.75)); opacity: 0; transition: opacity .25s; }
   .mosaic .ph:hover figcaption, .mosaic .ph.gone figcaption { opacity: 1; }
   .mosaic .ph.gone img { display: none; }
+  /* la firma de una foto de alumno: pequeña y siempre a la vista; arriba, porque abajo sale el pie */
+  .mosaic .ph .by { position: absolute; left: 6px; top: 6px; max-width: calc(100% - 12px); padding: 1px 6px;
+                    font-size: 10px; letter-spacing: 1px; line-height: 1.4; white-space: nowrap; overflow: hidden;
+                    text-overflow: ellipsis; background: rgba(11,11,11,.72); color: #f4f4f0; pointer-events: none; }
   .mosaic .ph figcaption b { display: block; text-transform: uppercase; letter-spacing: 1px; font-size: 10px; }
   .mosaic .tx { background: #0b0b0b; border: 1px solid #2a2a2a; display: flex; align-items: flex-end; padding: 10px;
                 font-weight: bold; text-transform: uppercase; letter-spacing: 1px; line-height: 1;
@@ -470,6 +474,7 @@
     .mosaic .ttl .w { padding: 1px 6px; }
     .mosaic a.go { padding: 10px 12px; align-items: center; }   /* la banda es baja: va centrada */
     .mosaic .ph figcaption { padding: 14px 6px 4px; font-size: 10px; }
+    .mosaic .ph .by { left: 4px; top: 4px; font-size: 9px; padding: 0 4px; letter-spacing: 0; }
     .landing .lcred { font-size: 9px; gap: 2px 8px; padding: 3px 8px; }
     .landing .lcred svg { width: 11px; height: 11px; }
   }
@@ -841,12 +846,28 @@
     return { cols: w > 1500 ? 10 : 8, rows: h < 700 ? 4 : 5, title: [4, 2], go: [2, 1] };
   }
 
+  // Primero las fotos de los alumnos, y repartidas: una por obra en cada vuelta, para que la obra
+  // que más gente ha fotografiado no se quede con la portada. Detrás, las de archivo de siempre (dos
+  // por obra). El reparto de piezas no cambia: solo qué foto cae en cada una.
   function landingPhotos() {
-    const out = [];
-    state.landmarks.forEach((lm) => photosOf(lm).slice(0, 2).forEach((p, i) => {
-      if (pictureUrl(p.thumb)) out.push({ lm, thumb: p.thumb, big: p.url || p.thumb, first: i === 0 });
-    }));
-    return shuffle(out);
+    const byLm = new Map(), archive = [];
+    state.landmarks.forEach((lm) => {
+      let shown = 0;
+      photosOf(lm).forEach((p) => {
+        if (!pictureUrl(p.thumb)) return;
+        const ph = { lm, thumb: p.thumb, big: p.url || p.thumb, author: p.source === 'alumno' ? p.author : null };
+        if (ph.author) { if (!byLm.has(lm.id)) byLm.set(lm.id, []); byLm.get(lm.id).push(ph); }
+        else if (shown++ < 2) archive.push(ph);
+      });
+    });
+    const groups = shuffle(Array.from(byLm.values()).map(shuffle));
+    const students = [];
+    for (let round = 0; groups.some((g) => g.length > round); round++) groups.forEach((g) => { if (g[round]) students.push(g[round]); });
+    return students.concat(shuffle(archive));
+  }
+
+  function byLabel(ph) {
+    return ph.author ? '<span class="by">' + esc(ph.author) + '</span>' : '';
   }
 
   function landingDates() {
@@ -890,8 +911,9 @@
 
   function tileImg(ph, big) {
     landing.shown.add(ph.thumb);
-    return '<figure class="ph" data-lm="' + ph.lm.id + '"' + (big ? ' data-big="1"' : '') + '>'
+    return '<figure class="ph" data-lm="' + ph.lm.id + '"' + (ph.author ? ' data-author="' + attr(ph.author) + '"' : '') + (big ? ' data-big="1"' : '') + '>'
       + '<img src="' + attr(big && pictureUrl(ph.big) ? ph.big : ph.thumb) + '" alt="" decoding="async" onerror="this.parentNode.classList.add(\'gone\')">'
+      + byLabel(ph)
       + '<figcaption><b>' + esc(ph.lm.architect) + '</b>' + esc(ph.lm.name) + '</figcaption></figure>';
   }
 
@@ -1070,21 +1092,29 @@
 
   // Cambia una foto pequeña por otra del viaje que no estuviera a la vista.
   function landingSwap() {
-    const tiles = Array.from(document.querySelectorAll('.mosaic .ph:not([data-big])'));
-    const next = landing.pool.shift();
-    if (!tiles.length || !next) return;
+    const next = landing.pool[0];
+    if (!next) return;
+    // una foto de archivo no sustituye a una de alumno: si solo quedan de archivo, solo cambian esas
+    const tiles = Array.from(document.querySelectorAll('.mosaic .ph:not([data-big])' + (next.author ? '' : ':not([data-author])')));
+    if (!tiles.length) return;
+    landing.pool.shift();
     const tile = pick(tiles);
     const img = new Image();
     img.onload = () => {
       if (!tile.isConnected) return;
       const old = tile.querySelector('img');
       const before = state.landmarks.find((x) => String(x.id) === tile.dataset.lm);
+      const beforeAuthor = tile.dataset.author || null;
       img.className = 'in'; img.alt = '';
       tile.insertBefore(img, tile.querySelector('figcaption'));
       tile.querySelector('figcaption').innerHTML = '<b>' + esc(next.lm.architect) + '</b>' + esc(next.lm.name);
+      const by = tile.querySelector('.by');
+      if (by) by.remove();
+      if (next.author) tile.querySelector('figcaption').insertAdjacentHTML('beforebegin', byLabel(next));
+      if (next.author) tile.dataset.author = next.author; else delete tile.dataset.author;
       tile.dataset.lm = next.lm.id;
       tile.classList.remove('gone');
-      setTimeout(() => { if (old) { if (before) landing.pool.push({ lm: before, thumb: old.src, big: old.src }); old.remove(); } }, 1200);
+      setTimeout(() => { if (old) { if (before) landing.pool.push({ lm: before, thumb: old.src, big: old.src, author: beforeAuthor }); old.remove(); } }, 1200);
     };
     img.src = next.thumb;
   }
