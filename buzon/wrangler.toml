@@ -1,0 +1,17 @@
+# El buzón de fotos de los alumnos. Sin secretos aquí: BUZON_SECRET se pone con
+#   npx wrangler secret put BUZON_SECRET
+# Los pasos completos, en buzon/README.md.
+name = "archtrip-buzon"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[[r2_buckets]]
+binding = "FOTOS"
+bucket_name = "archtrip-fotos"
+
+[[d1_databases]]
+binding = "BUZON"
+database_name = "archtrip-buzon"
+# lo que devuelve `npx wrangler d1 create archtrip-buzon` (no es secreto: solo dice qué base es)
+database_id = "PON-AQUI-EL-database_id"

@@ -1,0 +1,9 @@
+{
+  "name": "archtrip-buzon",
+  "private": true,
+  "type": "module",
+  "description": "El buzón de fotos de los alumnos (Worker de Cloudflare). Sin dependencias.",
+  "scripts": {
+    "test": "node --test prueba.mjs"
+  }
+}

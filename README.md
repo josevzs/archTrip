@@ -342,6 +342,14 @@ sufijo, y el enlace bueno es el que sale ahí.
 política *Allow* con los correos de los alumnos (o *Emails ending in* `@` el dominio de la escuela).
 Al entrar, cada uno recibe un código en su correo.
 
+## El buzón de fotos de los alumnos
+
+Durante el viaje, los alumnos suben desde el móvil las fotos que hacen, cada una firmada y atada a
+una obra. Entran **pendientes** y solo se publican cuando el profesor las aprueba. El buzón es un
+Worker de Cloudflare aparte (carpeta `buzon/`), con un cubo R2 y una base D1: guarda lo justo hasta
+que panda pasa a recogerlo y lo borra. **Panda nunca recibe conexiones**: es ella la que sale a
+buscar. Qué hace, qué comprueba y cómo se despliega, en [`buzon/README.md`](buzon/README.md).
+
 ## Copias de seguridad
 
 `scripts/backup.sh` guarda en `data/backups/` una instantánea consistente de la base de datos
@@ -382,6 +390,7 @@ copias de seguridad.
 ```
 pip install -r requirements-dev.txt
 pytest
+node --test buzon/prueba.mjs      # el buzón (Node 22; sin red ni dependencias)
 ```
 
 - `archtrip/` — Flask: `db.py` (SQLite), `excel.py` (plantillas y parseo), `geo.py`
@@ -392,6 +401,7 @@ pytest
   El itinerario son dos tablas (`trip_days`, `day_items`) y su API `/api/days/*` y `/api/items/*`.
 - `static/index.html` — todo el frontend (CSS y JS inline, sin build). El mismo archivo es
   la base del export HTML: el servidor solo le inyecta los datos en `<!--ARCHTRIP_DATA-->`.
+- `buzon/` — el Worker de Cloudflare donde los alumnos suben sus fotos (un solo `worker.js`).
 - La base de datos se crea sola al arrancar; `ARCHTRIP_DB` cambia su ruta.
 
 ## Licencia
