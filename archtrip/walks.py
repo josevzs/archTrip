@@ -14,7 +14,8 @@ Se importan de un `.geojson` (`POST /api/trips/<id>/paseos`) o desde la propia p
 poniendo `paseo` en la columna *Tipo* y, en *Recorrido*, la dirección de un `.geojson` o el
 GeoJSON pegado. El formato que se espera es el de QGIS: una `FeatureCollection` donde cada
 `Feature` lleva la geometría y, en `properties`, al menos `name`; y si están, se usan `city`,
-`theme` (que hace de «arquitecto», es lo que describe el paseo), `status`, `notes`, `length_m` y
+`theme` (de qué va el paseo: baja a las notas, porque en la columna del autor va «Paseo»),
+`status`, `notes`, `length_m` y
 `access_lat`/`access_lon`."""
 import json
 import math
@@ -127,14 +128,20 @@ def parse(data, default_name=None):
             continue
         lat, lon = entrance(geometry, props)
         notes = [str(props["notes"]).strip()] if props.get("notes") else []
-        for key in EXTRA_NOTES[1:]:                     # el tema va como «arquitecto», no en notas
+        tema = (props.get("theme") or "").strip()
+        if tema:
+            notes.append("Tema del paseo: " + tema[0].lower() + tema[1:] + ".")
+        for key in EXTRA_NOTES[1:]:
             if props.get(key):
                 notes.append(f"{key}: {props[key]}")
         largo = props.get("length_m")
         out.append({
             "name": name,
-            # en un paseo, lo que ocupa el sitio del arquitecto es de qué va
-            "architect": (props.get("theme") or props.get("kind") or "Paseo").strip(),
+            # Un paseo no lo firma nadie: en la columna del arquitecto va «Paseo», que es lo que
+            # los agrupa en la vista por autor, y el tema (de qué va) baja a las notas. Ojo: el
+            # autor forma parte de `name_key`, así que esto fija también cómo se reconoce un
+            # recorrido ya existente al volver a subirlo.
+            "architect": "Paseo",
             "city": (props.get("city") or "").strip(),
             "status": props.get("status") if props.get("status") in ("curado", "posible", "descartado") else None,
             "notes": "\n".join(notes) or None,

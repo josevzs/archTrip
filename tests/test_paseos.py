@@ -57,9 +57,10 @@ def test_a_walk_is_read_with_its_entrance_and_its_length():
     paseos, errores = walks.parse(coleccion(GION, UJI))
     assert errores == []
     gion, uji = paseos
-    # la entrada la manda el archivo; el tema ocupa el sitio del arquitecto
+    # la entrada la manda el archivo; un paseo no lo firma nadie, y su tema baja a las notas
     assert (gion["lat"], gion["lon"]) == (35.0038, 135.7748)
-    assert gion["architect"] == "Frentes urbanos y casas de té" and gion["city"] == "Kioto"
+    assert gion["architect"] == "Paseo" and gion["city"] == "Kioto"
+    assert "Tema del paseo: frentes urbanos y casas de té." in gion["notes"]
     assert gion["status"] == "posible" and "se anda en una tarde" in gion["notes"]
     assert "attribution" in gion["notes"]                      # de dónde sale el trazado
     assert gion["length_m"] > 200                               # se mide sola

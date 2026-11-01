@@ -99,7 +99,7 @@ por paseo:
   en la geometría los desplazamientos en tren o autobús entre tramos.
 - **properties** (lo único obligatorio es `name`):
   - `name`: nombre del paseo, como el de un edificio.
-  - `theme`: de qué va (ocupa el sitio del arquitecto).
+  - `theme`: de qué va. Sale en las notas; en la columna del autor, un paseo pone «Paseo».
   - `city`: municipio, igual que en los hitos.
   - `status`: `posible` o `descartado`, con el mismo criterio que arriba.
   - `notes`: lo mismo que la columna Notas (prioridad, avisos y motivo).
