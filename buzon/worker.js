@@ -339,14 +339,15 @@ export function formPage(trip) {
   .msg { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--line); background: var(--soft); display: none; }
   .msg.err { border-color: var(--warn); color: var(--warn); }
   .msg.ok { border-color: var(--ok); }
+  .cabra { display: block; font-size: 44px; line-height: 1; }
   .again { font: inherit; margin-top: 10px; padding: 8px 12px; border: 1px solid var(--ink); background: var(--bg); color: var(--ink); cursor: pointer; }
 </style></head>
 <body>
 <h1 id="trip">Buzón de fotos</h1>
 <div class="muted small">Sube tus fotos de las obras del viaje, <b>de una en una</b>. Cada foto queda pendiente: solo se publica cuando el profesor la aprueba.</div>
 <form id="f" novalidate>
-  <label class="f" for="author">Tu nombre</label>
-  <input type="text" id="author" name="author" maxlength="${MAX_AUTHOR}" autocomplete="name" placeholder="Nombre y apellido">
+  <label class="f" for="author">Autor</label>
+  <input type="text" id="author" name="author" maxlength="${MAX_AUTHOR}" autocomplete="name" placeholder="Firma de la foto">
 
   <label class="f" for="photo-in">La foto</label>
   <label class="pick" id="pick"><span id="pick-t">Elegir una foto</span>
@@ -440,7 +441,8 @@ export function formPage(trip) {
       let d = {};
       try { d = JSON.parse(xhr.responseText); } catch (x) { /* respuesta rara */ }
       if (xhr.status === 200 && d.ok) {
-        say('Recibida, gracias. Queda pendiente de aprobación: el profesor la revisará antes de publicarla.', 'ok');
+        // sin sermón: la cabra dice que ha llegado (decisión del dueño, 2 nov 2026)
+        say(' ', 'ok'); $('msg').innerHTML = '<span class="cabra">🐐</span>';
         const again = document.createElement('button'); again.type = 'button'; again.className = 'again'; again.textContent = 'Subir otra foto';
         again.addEventListener('click', () => { file = null; $('photo-in').value = ''; $('pick-t').textContent = 'Elegir una foto'; $('preview').style.display = 'none'; say(''); ready(); window.scrollTo(0, 0); });
         $('msg').appendChild(document.createElement('br')); $('msg').appendChild(again);
