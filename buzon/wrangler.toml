@@ -14,4 +14,4 @@ bucket_name = "archtrip-fotos"
 binding = "BUZON"
 database_name = "archtrip-buzon"
 # lo que devuelve `npx wrangler d1 create archtrip-buzon` (no es secreto: solo dice qué base es)
-database_id = "PON-AQUI-EL-database_id"
+database_id = "f8230c7c-21ad-460a-a75a-a5e49c350b12"
